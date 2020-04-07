@@ -77,6 +77,8 @@ class Vls.Server : Object {
     [CCode (has_target = false)]
     delegate void CallHandler (Vls.Server self, Jsonrpc.Server server, Jsonrpc.Client client, string method, Variant id, Variant @params);
 
+    Posix.FILE log_file;
+
     private void log_handler (string? log_domain, LogLevelFlags log_levels, string message) {
         string level = "";
 
@@ -94,7 +96,12 @@ class Vls.Server : Object {
             level = "-MESSAGE";
         else if ((log_levels & LogLevelFlags.LEVEL_WARNING) != 0)
             level = "-WARNING";
-        printerr ("%s: %s\n", log_domain == null ? @"vls$level" : log_domain, message);
+        if (log_file == null) {
+            log_file = Posix.FILE.open ("/tmp/vls.txt", "a");
+            log_file.printf ("[new file]-------------------------->\n");
+        }
+        log_file.printf ("%s: %s\n", log_domain == null ? @"vls$level" : log_domain, message);
+        log_file.flush ();
     }
 
     uint[] g_sources = {};
@@ -111,6 +118,10 @@ class Vls.Server : Object {
                 cancellable.cancel ();
             Server.received_signal = true;
         });
+    }
+
+    ~Server () {
+        log_file.close ();
     }
 
     public Server (MainLoop loop) {
@@ -219,6 +230,7 @@ class Vls.Server : Object {
         call_handlers["textDocument/implementation"] = this.textDocumentImplementation;
         call_handlers["workspace/symbol"] = this.workspaceSymbol;
         notif_handlers["$/cancelRequest"] = this.cancelRequest;
+        notif_handlers["workspace/didChangeConfiguration"] = this.workspaceDidChangeConfiguration;
 
         debug ("Finished constructing");
     }
@@ -349,6 +361,32 @@ class Vls.Server : Object {
         });
 
         is_initialized = true;
+
+        Timeout.add (4000, () => {
+            try {
+                Variant? return_value;
+                Variant parameters = buildDict (
+                    items: new Variant.array (
+                        null,
+                        new Variant[] {
+                            buildDict (
+                                scopeUri: new Variant.string ("vala://"),
+                                section: new Variant.string ("configuration")
+                            )
+                        }
+                    )
+                );
+                debug ("asking for configuration with parameters: %s", Json.to_string (Json.gvariant_serialize (parameters), true));
+                client.call (
+                    "workspace/configuration", 
+                    parameters, 
+                    cancellable, out return_value);
+                debug ("got configuration: %s", Json.to_string (Json.gvariant_serialize (return_value), true));
+            } catch (Error e) {
+                warning ("failed to get configuration: %s", e.message);
+            }
+            return Source.REMOVE;
+        });
     }
 
     void cancelRequest (Jsonrpc.Client client, Variant @params) {
@@ -2389,6 +2427,10 @@ class Vls.Server : Object {
                 debug (@"[$method] failed to reply to client: $(e.message)");
             }
         });
+    }
+
+    void workspaceDidChangeConfiguration (Jsonrpc.Client client, Variant @params) {
+        debug ("[workspace/didChangeConfiguration] got params: %s", Json.to_string (Json.gvariant_serialize (@params), true));
     }
 
     void shutdown (Jsonrpc.Server self, Jsonrpc.Client client, string method, Variant id, Variant @params) {
