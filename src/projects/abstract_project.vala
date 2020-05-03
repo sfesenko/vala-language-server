@@ -15,6 +15,9 @@ abstract class Vls.AbstractProject : Object, Project {
      */
     private HashMap<File, FileMonitor> monitored_files = new HashMap<File, FileMonitor> (Util.file_hash, Util.file_equal);
 
+
+    private GirDocumentation documentation;
+
     /** 
      * Determine dependencies and remove build targets that are not needed.
      * This is the final operation needed before the project is ready to be
@@ -247,11 +250,11 @@ abstract class Vls.AbstractProject : Object, Project {
         return false;
     }
 
-#if PARSE_SYSTEM_GIRS
     /**
      * Get all unique packages used in this project
      */
     public Collection<Vala.SourceFile> get_packages () {
+#if PARSE_SYSTEM_GIRS
         var results = new HashSet<Vala.SourceFile> (Util.source_file_hash, Util.source_file_equal);
         foreach (var btarget in build_targets) {
             if (!(btarget is Compilation))
@@ -262,8 +265,22 @@ abstract class Vls.AbstractProject : Object, Project {
                     results.add (source_file);
         }
         return results;
-    }
+#else
+        return null;
 #endif
+    }
+
+    public GirDocumentation? get_documentation () {
+        if (this.documentation == null) {
+            var packages = get_packages ();
+            if (packages == null) {
+                return null;
+            } else {
+                this.documentation = new GirDocumentation (packages);
+            }    
+        }
+        return this.documentation;
+    }
 
     /**
      * Get all source files used in this project.

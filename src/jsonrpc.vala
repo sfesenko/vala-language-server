@@ -3,9 +3,53 @@ namespace Vls {
 
 class JsonrpcClient {
     private Jsonrpc.Client client;
+    private Cancellable cancellable;
 
-    public JsonrpcClient (Jsonrpc.Client client) {
+    public JsonrpcClient (Jsonrpc.Client client, Cancellable cancellable) {
         this.client = client;
+        this.cancellable = cancellable;
+    }
+
+    [Version (deprecated = true)]
+    public Jsonrpc.Client get_client () {
+        return this.client;
+    }
+
+    // a{sv} only
+    Variant buildDict (...) {
+        var l = va_list ();
+        return build_variant (l);
+    }
+
+    // a{sv} only
+    Variant build_variant (va_list l) {
+        var builder = new VariantBuilder (new VariantType ("a{sv}"));
+        while (true) {
+            string? key = l.arg ();
+            if (key == null) {
+                break;
+            }
+            Variant val = l.arg ();
+            builder.add ("{sv}", key, val);
+        }
+        return builder.end ();
+    }
+
+    public void showMessage (string message, LanguageServer.MessageType type) {
+        if (type == LanguageServer.MessageType.Error)
+            warning (message);
+        try {
+            client.send_notification ("window/showMessage", buildDict (
+                type: new Variant.int16 (type),
+                message: new Variant.string (message)
+            ), cancellable);
+        } catch (Error e) {
+            debug (@"showMessage: failed to notify client: $(e.message)");
+        }
+    }
+
+    public bool reply_variant (Variant id, Variant result) throws Error {
+        return client.reply (id, result, cancellable);
     }
 }
 
@@ -17,16 +61,8 @@ class JsonrpcServer : Jsonrpc.Server {
     [CCode (has_target = false)]
     public delegate void CallHandler (JsonrpcClient client, Variant id, Variant @params);
 
-    HashTable<string, NotificationHandler> notification_handlers;
-    HashTable<string, CallHandler> call_handlers;
-
     private Cancellable cancellable;
     ulong client_closed_event_id;
-
-    construct {
-        this.notification_handlers = new HashTable<string, NotificationHandler> (str_hash, str_equal);
-        this.call_handlers = new HashTable<string, CallHandler> (str_hash, str_equal);
-    }
 
     public JsonrpcServer (Cancellable cancellable) throws GLib.Error  {
         this.cancellable = cancellable;
@@ -65,15 +101,6 @@ class JsonrpcServer : Jsonrpc.Server {
         });
 #endif
         cancellable.cancelled.connect ( shutdown );
-        notification.connect ((client, method, @params) => {
-            var handler = this.notification_handlers[method];
-            if (handler != null) {
-                var rpc_client = new JsonrpcClient (client);
-                handler (rpc_client, @params);
-            } else {
-                // debug ( @"ignore notification: [$method]");
-            }
-        });
     }
 
     /**
@@ -85,15 +112,5 @@ class JsonrpcServer : Jsonrpc.Server {
             disconnect (client_closed_event_id);
         }
     }
-
-    /*
-    public void attach_notification (string name, NotificationHandler handler) {
-        notification_handlers[name] = handler;
-    }
-
-    public void attach_call (string name, CallHandler handler) {
-        this.call_handlers[name] = handler;
-    }
-    */
 }
 } // namespace

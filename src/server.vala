@@ -5,6 +5,9 @@ class Vls.Server : Object {
     Jsonrpc.Server server;
     MainLoop loop;
 
+    HashTable<string, NotificationHandler> defined_notification_handlers = new HashTable<string, NotificationHandler>(str_hash, str_equal);
+    HashTable<string, CallHandler> defined_call_handlers = new HashTable<string, CallHandler>(str_hash, str_equal);
+
     HashTable<string, NotificationHandler> notif_handlers;
     HashTable<string, CallHandler> call_handlers;
     InitializeParams init_params;
@@ -16,15 +19,7 @@ class Vls.Server : Object {
 
     Project project;
 
-#if PARSE_SYSTEM_GIRS
-    /**
-     * Contains documentation from found GIR files.
-     */
-    GirDocumentation documentation;
-#endif
     HashSet<Request> pending_requests;
-
-    bool is_initialized = false;
 
     /**
      * The global cancellable object
@@ -39,6 +34,9 @@ class Vls.Server : Object {
 
     uint[] g_sources = {};
     ulong project_changed_event_id;
+    uint[] call_handler_ids = {};
+
+    HashTable<weak Jsonrpc.Client, JsonrpcClient> client_cache = new HashTable <weak Jsonrpc.Client, JsonrpcClient> (direct_hash, direct_equal);
 
     static void handle_signal (int signum) {
         debug ("handle_signal: %d", signum);
@@ -56,6 +54,9 @@ class Vls.Server : Object {
         this.loop = loop;
         cancellable.cancelled.connect (() => {
             debug ("cancelled, quit()");
+            foreach (var uid in call_handler_ids) {
+                server.remove_handler (uid);
+            }
             loop.quit ();
         });
 
@@ -65,56 +66,79 @@ class Vls.Server : Object {
             error ("Cannot create server: %s", e.message);
         }
 
-        notif_handlers = new HashTable<string, NotificationHandler> (str_hash, str_equal);
-        call_handlers = new HashTable<string, CallHandler> (str_hash, str_equal);
-
         pending_requests = new HashSet<Request> (Request.hash, Request.equal);
 
-        server.notification.connect ((client, method, @params) => {
-            debug (@"Got notification! $method");
-            if (!is_initialized) {
-                debug ("Server is not initialized");
-            } else if (notif_handlers.contains (method))
-                ((NotificationHandler) notif_handlers[method]) (this, client, @params);
-            else
-                debug (@"no notification handler for $method");
-        });
+        call_handler_ids += server.add_handler ("initialize", this.on_initialize);
 
-        server.handle_call.connect ((client, method, id, @params) => {
-            debug (@"Got call! $method");
-            if (!is_initialized && !(method == "initialize" ||
-                                     method == "shutdown" ||
-                                     method == "exit")) {
-                debug ("Server is not initialized");
-                return false;
-            } else if (call_handlers.contains (method)) {
-                ((CallHandler) call_handlers[method]) (this, server, client, method, id, @params);
-                return true;
-            } else {
-                debug (@"no call handler for $method");
-                return false;
-            }
-        });
+        //  defined_call_handlers["initialize"] = this.initialize;
+        defined_call_handlers["shutdown"] = this.shutdown;
+        defined_notification_handlers["exit"] = this.exit;
 
-        call_handlers["initialize"] = this.initialize;
-        call_handlers["shutdown"] = this.shutdown;
-        notif_handlers["exit"] = this.exit;
-
-        call_handlers["textDocument/definition"] = this.textDocumentDefinition;
-        notif_handlers["textDocument/didOpen"] = this.textDocumentDidOpen;
-        notif_handlers["textDocument/didClose"] = this.textDocumentDidClose;
-        notif_handlers["textDocument/didChange"] = this.textDocumentDidChange;
-        call_handlers["textDocument/documentSymbol"] = this.textDocumentDocumentSymbol;
-        call_handlers["textDocument/completion"] = this.textDocumentCompletion;
-        call_handlers["textDocument/signatureHelp"] = this.textDocumentSignatureHelp;
-        call_handlers["textDocument/hover"] = this.textDocumentHover;
-        call_handlers["textDocument/references"] = this.textDocumentReferences;
-        call_handlers["textDocument/documentHighlight"] = this.textDocumentReferences;
-        call_handlers["textDocument/implementation"] = this.textDocumentImplementation;
-        call_handlers["workspace/symbol"] = this.workspaceSymbol;
-        notif_handlers["$/cancelRequest"] = this.cancelRequest;
+        defined_call_handlers["textDocument/definition"] = this.textDocumentDefinition;
+        defined_notification_handlers["textDocument/didOpen"] = this.textDocumentDidOpen;
+        defined_notification_handlers["textDocument/didClose"] = this.textDocumentDidClose;
+        defined_notification_handlers["textDocument/didChange"] = this.textDocumentDidChange;
+        defined_call_handlers["textDocument/documentSymbol"] = this.textDocumentDocumentSymbol;
+        defined_call_handlers["textDocument/completion"] = this.textDocumentCompletion;
+        defined_call_handlers["textDocument/signatureHelp"] = this.textDocumentSignatureHelp;
+        defined_call_handlers["textDocument/hover"] = this.textDocumentHover;
+        defined_call_handlers["textDocument/references"] = this.textDocumentReferences;
+        defined_call_handlers["textDocument/documentHighlight"] = this.textDocumentReferences;
+        defined_call_handlers["textDocument/implementation"] = this.textDocumentImplementation;
+        defined_call_handlers["workspace/symbol"] = this.workspaceSymbol;
+        defined_notification_handlers["$/cancelRequest"] = this.cancelRequest;
 
         debug ("Finished constructing");
+    }
+
+    void on_notification (Jsonrpc.Client client, string method, Variant parameters) {
+        if (notif_handlers == null) {
+            debug (@"Got notification! [$method], but not iitialized");
+        } else {
+            var handler = notif_handlers[method];
+            if (handler == null) {
+                debug (@"no notification handler for $method");
+            } else {
+                handler (this, client, parameters);
+            }
+        }
+    }
+
+    bool on_call (Jsonrpc.Client client, string method, Variant id, Variant parameters) {
+        bool result = false;
+        if (call_handlers == null) {
+            debug (@"Got call! [$method], but not iitialized");
+        } else {
+            var handler = call_handlers[method];
+            if (handler == null) {
+                debug (@"no call handler for $method");
+            } else {
+                handler (this, server, client, method, id, parameters);
+                result = true;
+            }
+        }
+        return result;
+    }
+
+    void on_initialize (Jsonrpc.Server self, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        client_cache[client] = new JsonrpcClient (client, cancellable);
+        var rpc_client = client_cache[client];
+        this.initialize (rpc_client, id, @params);
+
+        // listen for context update requests
+        update_context_client = client;
+        g_sources += Timeout.add (check_update_context_period_ms, () => {
+            check_update_context ();
+            return true;
+        });
+        project_changed_event_id = project.changed.connect (project_changed_event);
+        
+
+        notif_handlers = defined_notification_handlers;
+        call_handlers = defined_call_handlers;
+
+        server.notification.connect (this.on_notification);
+        server.handle_call.connect (this.on_call);
     }
 
     // a{sv} only
@@ -132,20 +156,7 @@ class Vls.Server : Object {
         return builder.end ();
     }
 
-    void showMessage (Jsonrpc.Client client, string message, MessageType type) {
-        if (type == MessageType.Error)
-            warning (message);
-        try {
-            client.send_notification ("window/showMessage", buildDict (
-                type: new Variant.int16 (type),
-                message: new Variant.string (message)
-            ), cancellable);
-        } catch (Error e) {
-            debug (@"showMessage: failed to notify client: $(e.message)");
-        }
-    }
-
-    void initialize (Jsonrpc.Server self, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    void initialize (JsonrpcClient client, Variant id, Variant @params) {
         init_params = Util.parse_variant<InitializeParams> (@params);
 
         File root_dir;
@@ -156,34 +167,35 @@ class Vls.Server : Object {
         else
             root_dir = File.new_for_path (Environment.get_current_dir ());
         if (!root_dir.is_native ()) {
-            showMessage (client, "Non-native files not supported", MessageType.Error);
+            client.showMessage ("Non-native files not supported", MessageType.Error);
             error ("Non-native files not supported");
         }
 
         // respond
+        var reply_template = @"
+        {'capabilities':
+            <{
+                'textDocumentSync': <int16 $((int16) TextDocumentSyncKind.Incremental)>,
+                'definitionProvider': <true>,
+                'documentSymbolProvider': <true>,
+                'completionProvider':
+                    <{'triggerCharacters': <['.', '>']>}>,
+                'signatureHelpProvider':
+                    <{'triggerCharacters': <['(', ',']>}>,
+                'hoverProvider': <true>,
+                'referencesProvider': <true>,
+                'documentHighlightProvider': <true>,
+                'implementationProvider': <true>,
+                'workspaceSymbolProvider': <true>
+            }>,
+            'serverInfo': <{
+                'name': <'Vala Language Server'>, 
+                'version': <'$(Config.version)'>
+            }>
+        }";
+        var reply_info = Util.string_to_variant (reply_template);
         try {
-            client.reply (id, buildDict (
-                capabilities: buildDict (
-                    textDocumentSync: new Variant.int16 (TextDocumentSyncKind.Incremental),
-                    definitionProvider: new Variant.boolean (true),
-                    documentSymbolProvider: new Variant.boolean (true),
-                    completionProvider: buildDict(
-                        triggerCharacters: new Variant.strv (new string[] {".", ">"})
-                    ),
-                    signatureHelpProvider: buildDict(
-                        triggerCharacters: new Variant.strv (new string[] {"(", ","})
-                    ),
-                    hoverProvider: new Variant.boolean (true),
-                    referencesProvider: new Variant.boolean (true),
-                    documentHighlightProvider: new Variant.boolean (true),
-                    implementationProvider: new Variant.boolean (true),
-                    workspaceSymbolProvider: new Variant.boolean (true)
-                ),
-                serverInfo: buildDict (
-                    name: new Variant.string ("Vala Language Server"),
-                    version: new Variant.string (Config.version)
-                )
-            ), cancellable);
+            client.reply_variant (id, reply_info);
         } catch (Error e) {
             error (@"[initialize] failed to reply to client: $(e.message)");
         }
@@ -192,7 +204,7 @@ class Vls.Server : Object {
         project = project_result.first;
         if (project is DefaultProject) {
             var message = project_result.second ?? "Only Meson projects are properly supported";
-            showMessage (client, message, MessageType.Warning);
+            client.showMessage (message, MessageType.Warning);
         } else {
             debug ("Meson Project is Constructed");
         }
@@ -200,15 +212,10 @@ class Vls.Server : Object {
         try {
             project.build_if_stale (cancellable);
         } catch (Error e) {
-            showMessage (client, @"failed to build project - $(e.message)", MessageType.Error);
+            client.showMessage (@"failed to build project - $(e.message)", MessageType.Error);
             warning ("[initialize] failed to build project - %s", e.message);
             return;
         }
-
-#if PARSE_SYSTEM_GIRS
-        // create documentation (compiles GIR files too)
-        documentation = new GirDocumentation (project.get_packages ());
-#endif
 
         // build and publish diagnostics
         try {
@@ -216,20 +223,11 @@ class Vls.Server : Object {
             project.build_if_stale ();
             debug ("Publishing diagnostics ...");
             foreach (var compilation in project.get_compilations ()) {
-                publishDiagnostics (compilation, client);
+                publishDiagnostics (compilation, client.get_client ());
             }
         } catch (Error e) {
-            showMessage (client, @"Failed to build project - $(e.message)", MessageType.Error);
+            client.showMessage (@"Failed to build project - $(e.message)", MessageType.Error);
         }
-
-        // listen for context update requests
-        update_context_client = client;
-        g_sources += Timeout.add (check_update_context_period_ms, () => {
-            check_update_context ();
-            return true;
-        });
-        project_changed_event_id = project.changed.connect (project_changed_event);
-        is_initialized = true;
     }
 
     void project_changed_event () {
@@ -1043,9 +1041,10 @@ class Vls.Server : Object {
     public LanguageServer.MarkupContent? get_symbol_documentation (Vala.Symbol sym) {
         Vala.Symbol real_sym = find_real_sym (sym);
         sym = real_sym;
-#if PARSE_SYSTEM_GIRS
-        var gir_sym = documentation.find_gir_symbol (sym);
-#endif
+
+        var documentation = project.get_documentation ();
+        var gir_sym = (documentation == null) ? null : documentation.find_gir_symbol (sym);
+
         string? comment = null;
 
         if (sym.comment != null) {
@@ -1056,10 +1055,8 @@ class Vls.Server : Object {
                 warning (@"failed to parse comment...\n$comment\n...");
                 comment = "(failed to parse comment)";
             }
-#if PARSE_SYSTEM_GIRS
         } else if (gir_sym != null && gir_sym.comment != null) {
             comment = GirDocumentation.render_comment (gir_sym.comment);
-#endif
         } else {
             return null;
         }

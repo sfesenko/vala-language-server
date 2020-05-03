@@ -11,6 +11,17 @@ namespace Vls.Util {
         return Json.gvariant_deserialize (json, null);
     }
 
+    public static Variant string_to_variant (string value) {
+        Variant result;
+        try {
+            result = Variant.parse (null, value);
+        } catch (VariantParseError e) {
+            warning ("string_to_variant: %s, value = %s", e.message, value);
+            result = null;
+        }
+        return result;
+    }
+
     /**
      * Gets the offset, in bytes, of the UTF-8 character at the given line and
      * position.

@@ -18,6 +18,7 @@ vls_src = files([
   'projects/textdocument.vala',
   'projects/project_types.vala',
   'protocol.vala',
+  'server_initialize.vala',
   'server.vala',
   'servertypes.vala',
   'reporter.vala'

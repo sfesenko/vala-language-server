@@ -29,7 +29,6 @@ errordomain ProjectError {
      */
     TASK_FAILED,
 
-    FAILED,
 }
 
 /**
@@ -86,6 +85,11 @@ interface Project : Object {
      * Get all source files used in this project.
      */
     public abstract Gee.Collection<Vala.SourceFile> get_project_source_files ();
+
+    /**
+     * Contains documentation from found GIR files.
+     */
+    public abstract GirDocumentation? get_documentation ();
 }
 
 } // namespace
