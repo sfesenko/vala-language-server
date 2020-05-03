@@ -3,11 +3,28 @@ using Gee;
 /**
  * A project without any backend. Mainly useful for editing one file.
  */
-class Vls.DefaultProject : Project {
-    private string root_path;
+class Vls.DefaultProject : AbstractProject {
 
-    public DefaultProject (string root_path) {
-        this.root_path = root_path;
+    public enum BackendType {
+        CMAKE,
+        AUTOTOOLS,
+        UNKNOWN,
+    }
+
+    private string root_path;
+    public BackendType backend {get; private set; }
+
+    public DefaultProject (GLib.File root_dir) {
+        BackendType backend;
+        if (root_dir.get_child ("CMakeLists.txt").query_exists ()) {
+            backend = BackendType.CMAKE;
+        } else if (root_dir.get_child ("autogen.sh").query_exists ()) {
+            backend = BackendType.AUTOTOOLS;
+        } else {
+            backend = BackendType.UNKNOWN;
+        }
+        this.backend = backend;
+        this.root_path = Util.realpath ((!) root_dir.get_path ());
     }
 
     public override bool reconfigure_if_stale (Cancellable? cancellable = null) throws Error {

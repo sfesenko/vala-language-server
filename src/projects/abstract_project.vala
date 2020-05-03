@@ -3,7 +3,7 @@ using Gee;
 /**
  * An abstract representation of a project with any possible backend.
  */
-abstract class Vls.Project : Object {
+abstract class Vls.AbstractProject : Object, Project {
     /**
      * This collection must be topologically sorted.
      */
@@ -187,12 +187,6 @@ abstract class Vls.Project : Object {
     }
 
     /**
-     * Emitted when build files change. This is mainly useful for tracking files that indirectly
-     * affect Vala messages, such as C sources or build scripts.
-     */
-    public signal void changed ();
-
-    /**
      * Reconfigure the project if there were changes to the build files that warrant doing so.
      * Returns true if the project was actually reconfigured, false otherwise.
      */
@@ -291,26 +285,4 @@ abstract class Vls.Project : Object {
                 results.add ((Compilation) btarget);
         return results;
     }
-}
-
-errordomain Vls.ProjectError {
-    /**
-     * Project backend has unsupported version.
-     */
-    VERSION_UNSUPPORTED,
-
-    /**
-     * Generic error during project introspection.
-     */
-    INTROSPECTION,
-
-    /**
-     * Failure during project configuration
-     */
-    CONFIGURATION,
-
-    /**
-     * If a build task failed. 
-     */
-    TASK_FAILED
 }

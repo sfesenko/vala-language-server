@@ -1,8 +1,32 @@
+using Gee;
+namespace Vls {
 
-class Vls.JsonrpcServer : Jsonrpc.Server {
+class JsonrpcClient {
+    private Jsonrpc.Client client;
+
+    public JsonrpcClient (Jsonrpc.Client client) {
+        this.client = client;
+    }
+}
+
+class JsonrpcServer : Jsonrpc.Server {
+
+    [CCode (has_target = false)]
+    public delegate void NotificationHandler (JsonrpcClient client, Variant @params);
+
+    [CCode (has_target = false)]
+    public delegate void CallHandler (JsonrpcClient client, Variant id, Variant @params);
+
+    HashTable<string, NotificationHandler> notification_handlers;
+    HashTable<string, CallHandler> call_handlers;
 
     private Cancellable cancellable;
     ulong client_closed_event_id;
+
+    construct {
+        this.notification_handlers = new HashTable<string, NotificationHandler> (str_hash, str_equal);
+        this.call_handlers = new HashTable<string, CallHandler> (str_hash, str_equal);
+    }
 
     public JsonrpcServer (Cancellable cancellable) throws GLib.Error  {
         this.cancellable = cancellable;
@@ -41,6 +65,15 @@ class Vls.JsonrpcServer : Jsonrpc.Server {
         });
 #endif
         cancellable.cancelled.connect ( shutdown );
+        notification.connect ((client, method, @params) => {
+            var handler = this.notification_handlers[method];
+            if (handler != null) {
+                var rpc_client = new JsonrpcClient (client);
+                handler (rpc_client, @params);
+            } else {
+                // debug ( @"ignore notification: [$method]");
+            }
+        });
     }
 
     /**
@@ -52,4 +85,15 @@ class Vls.JsonrpcServer : Jsonrpc.Server {
             disconnect (client_closed_event_id);
         }
     }
+
+    /*
+    public void attach_notification (string name, NotificationHandler handler) {
+        notification_handlers[name] = handler;
+    }
+
+    public void attach_call (string name, CallHandler handler) {
+        this.call_handlers[name] = handler;
+    }
+    */
 }
+} // namespace

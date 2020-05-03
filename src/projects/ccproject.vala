@@ -3,7 +3,7 @@ using Gee;
 /**
  * A backend for `compile_commands.json` files. 
  */
-class Vls.CcProject : Project {
+class Vls.CcProject : AbstractProject {
     private bool build_files_have_changed = true;
     private File cc_json_file;
     private HashMap<File, FileMonitor> build_files = new HashMap<File, FileMonitor> (Util.file_hash, Util.file_equal);

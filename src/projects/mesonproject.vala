@@ -3,7 +3,7 @@ using Gee;
 /**
  * A project with a Meson backend
  */
-class Vls.MesonProject : Project {
+class Vls.MesonProject : AbstractProject {
     private bool build_files_have_changed = true;
     private HashMap<File, FileMonitor> meson_build_files = new HashMap<File, FileMonitor> (Util.file_hash, Util.file_equal);
     private string root_path;

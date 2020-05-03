@@ -159,8 +159,6 @@ class Vls.Server : Object {
             showMessage (client, "Non-native files not supported", MessageType.Error);
             error ("Non-native files not supported");
         }
-        string root_path = Util.realpath ((!) root_dir.get_path ());
-        debug (@"[initialize] root path is $root_path");
 
         // respond
         try {
@@ -190,49 +188,13 @@ class Vls.Server : Object {
             error (@"[initialize] failed to reply to client: $(e.message)");
         }
 
-        var meson_file = root_dir.get_child ("meson.build");
-        ArrayList<File> cc_files = new ArrayList<File> ();
-        try {
-            cc_files = Util.find_files (root_dir, /compile_commands\.json/, 2);
-        } catch (Error e) {
-            warning ("could not enumerate root dir - %s", e.message);
-        }
-        // TODO: autotools, make(?), cmake(?)
-        if (meson_file.query_exists (cancellable)) {
-            try {
-                project = new MesonProject (root_path, cancellable);
-            } catch (Error e) {
-                if (!(e is ProjectError.VERSION_UNSUPPORTED)) {
-                    showMessage (client, @"Failed to initialize Meson project - $(e.message)", MessageType.Error);
-                }
-            }
-        }
-        
-        // try compile_commands.json if Meson failed
-        if (project == null && !cc_files.is_empty) {
-            foreach (var cc_file in cc_files) {
-                string cc_file_path = Util.realpath (cc_file.get_path ());
-                try {
-                    project = new CcProject (root_path, cc_file_path, cancellable);
-                    debug ("[initialize] initialized CcProject with %s", cc_file_path);
-                    break;
-                } catch (Error e) {
-                    debug ("[initialize] CcProject failed with %s - %s", cc_file_path, e.message);
-                    continue;
-                }
-            }
-        }
-
-        // use DefaultProject as a last resort
-        if (project == null) {
-            project = new DefaultProject (root_path);
-            var cmake_file = root_dir.get_child ("CMakeLists.txt");
-            var autogen_sh = root_dir.get_child ("autogen.sh");
-
-            if (cmake_file.query_exists (cancellable))
-                showMessage (client, @"CMake build system is not currently supported. Only Meson is. See https://github.com/benwaffle/vala-language-server/issues/73", MessageType.Warning);
-            if (autogen_sh.query_exists (cancellable))
-                showMessage (client, @"Autotools build system is not currently supported. Consider switching to Meson.", MessageType.Warning);
+        var project_result = Projects.get_project (root_dir, cancellable);
+        project = project_result.first;
+        if (project is DefaultProject) {
+            var message = project_result.second ?? "Only Meson projects are properly supported";
+            showMessage (client, message, MessageType.Warning);
+        } else {
+            debug ("Meson Project is Constructed");
         }
 
         try {
@@ -253,8 +215,9 @@ class Vls.Server : Object {
             debug ("Building project ...");
             project.build_if_stale ();
             debug ("Publishing diagnostics ...");
-            foreach (var compilation in project.get_compilations ())
+            foreach (var compilation in project.get_compilations ()) {
                 publishDiagnostics (compilation, client);
+            }
         } catch (Error e) {
             showMessage (client, @"Failed to build project - $(e.message)", MessageType.Error);
         }
@@ -266,7 +229,6 @@ class Vls.Server : Object {
             return true;
         });
         project_changed_event_id = project.changed.connect (project_changed_event);
-
         is_initialized = true;
     }
 
@@ -499,8 +461,9 @@ class Vls.Server : Object {
 
         debug ("publishing diagnostics for Compilation target %s", target.id);
 
-        foreach (var file in target.code_context.get_source_files ())
+        foreach (var file in target.code_context.get_source_files ()) {
             files_not_published.add (file);
+        }
 
         var doc_diags = new HashMap<Vala.SourceFile, Json.Array> ();
 
