@@ -346,7 +346,12 @@ class Vls.Server : Jsonrpc.Server {
             root_dir = File.new_for_path (Environment.get_current_dir ());
         if (!root_dir.is_native ()) {
             show_message (client, "Non-native files not supported", MessageType.Error);
-            error ("Non-native files not supported");
+            client.reply_error_async.begin (
+                id,
+                Jsonrpc.ClientError.INVALID_PARAMS,
+                "Non-native files not supported",
+                cancellable);
+            return;
         }
         string root_path = Util.realpath ((!) root_dir.get_path ());
         debug (@"[initialize] root path is $root_path");
@@ -992,7 +997,6 @@ class Vls.Server : Jsonrpc.Server {
             }
         }
 
-        assert (best != null);
         // var sr = best.source_reference;
         // var from = (long)Util.get_string_pos (file.content, sr.begin.line-1, sr.begin.column-1);
         // var to = (long)Util.get_string_pos (file.content, sr.end.line-1, sr.end.column);
