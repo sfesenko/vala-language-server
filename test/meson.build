@@ -49,6 +49,7 @@ integration_tests = [
   '/vls/integration/initialize_capabilities',
   '/vls/integration/document_symbol',
   '/vls/integration/hover',
+  '/vls/integration/goto_definition',
   '/vls/integration/range_formatting',
   '/vls/integration/completion',
 ]

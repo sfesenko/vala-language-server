@@ -378,6 +378,25 @@ void test_hover () {
     teardown_session (s);
 }
 
+void test_goto_definition () {
+    // Requesting the definition of a method must return a non-null location.
+    var s = setup_session (SYMBOL_FIXTURE);
+    var h = new Helpers ();
+    Variant? res = Helpers.sync_call (s.client, "textDocument/definition", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri)),
+        position: h.build_dict (line: new Variant.int32 (1), character: new Variant.int32 (17))
+    ));
+    assert (res != null);
+    // goto_definition returns a single Location or an array of Locations.
+    if (res.is_of_type (VariantType.ARRAY)) {
+        assert (res.n_children () > 0);
+    } else {
+        assert (res.lookup_value ("uri", null) != null);
+        assert (res.lookup_value ("range", null) != null);
+    }
+    teardown_session (s);
+}
+
 void test_range_formatting () {
     // The format handler shells out to uncrustify; skip gracefully when it is
     // not installed so the suite stays green in environments without it.
@@ -430,6 +449,7 @@ int main (string[] args) {
     Test.add_func ("/vls/integration/initialize_capabilities", test_initialize_capabilities);
     Test.add_func ("/vls/integration/document_symbol", test_document_symbol);
     Test.add_func ("/vls/integration/hover", test_hover);
+    Test.add_func ("/vls/integration/goto_definition", test_goto_definition);
     Test.add_func ("/vls/integration/range_formatting", test_range_formatting);
     Test.add_func ("/vls/integration/completion", test_completion);
     return Test.run ();

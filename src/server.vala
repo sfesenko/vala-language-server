@@ -24,7 +24,7 @@ class Vls.Server : Jsonrpc.Server {
     private static bool received_signal = false;
     MainLoop loop;
 
-    InitializeParams init_params;
+    public InitializeParams init_params;
 
     const uint check_update_context_period_ms = 100;
     const int64 update_context_delay_inc_us = 500 * 1000;
@@ -47,8 +47,8 @@ class Vls.Server : Jsonrpc.Server {
 
     uint[] g_sources = {};
     ulong client_closed_event_id;
-    HashTable<Project, ulong> projects;
-    DefaultProject default_project;
+    public HashTable<Project, ulong> projects;
+    public DefaultProject default_project;
 
     /**
      * Contains files that have been closed and should no longer be managed
@@ -169,11 +169,11 @@ class Vls.Server : Jsonrpc.Server {
                 break;
 
             case "textDocument/definition":
-                goto_definition (client, method, id, parameters);
+                Navigation.goto_definition (this, client, method, id, parameters);
                 break;
 
             case "textDocument/documentSymbol":
-                document_symbol_outline (client, method, id, parameters);
+                DocumentSymbolHandler.document_symbol_outline (this, client, method, id, parameters);
                 break;
 
             case "textDocument/completion":
@@ -185,7 +185,7 @@ class Vls.Server : Jsonrpc.Server {
                 break;
 
             case "textDocument/hover":
-                hover (client, method, id, parameters);
+                HoverHandler.hover (this, client, method, id, parameters);
                 break;
 
             case "textDocument/formatting":
@@ -199,23 +199,23 @@ class Vls.Server : Jsonrpc.Server {
 
             case "textDocument/references":
             case "textDocument/documentHighlight":
-                show_references (client, method, id, parameters);
+                Navigation.show_references (this, client, method, id, parameters);
                 break;
                 
             case "textDocument/implementation":
-                show_implementations (client, method, id, parameters);
+                Navigation.show_implementations (this, client, method, id, parameters);
                 break;
 
             case "workspace/symbol":
-                search_workspace_symbols (client, method, id, parameters);
+                Workspace.search_workspace_symbols (this, client, method, id, parameters);
                 break;
 
             case "textDocument/rename":
-                rename_symbol (client, method, id, parameters);
+                Rename.rename_symbol (this, client, method, id, parameters);
                 break;
 
             case "textDocument/prepareRename":
-                prepare_rename_symbol (client, method, id, parameters);
+                Rename.prepare_rename_symbol (this, client, method, id, parameters);
                 break;
 
             case "textDocument/codeLens":
@@ -223,31 +223,31 @@ class Vls.Server : Jsonrpc.Server {
                 break;
 
             case "textDocument/prepareCallHierarchy":
-                prepare_call_hierarchy (client, method, id, parameters);
+                CallHierarchy.prepare_call_hierarchy (this, client, method, id, parameters);
                 break;
 
             case "callHierarchy/incomingCalls":
-                call_hierarchy_incoming_calls (client, method, id, parameters);
+                CallHierarchy.call_hierarchy_incoming_calls (this, client, method, id, parameters);
                 break;
 
             case "callHierarchy/outgoingCalls":
-                call_hierarchy_outgoing_calls (client, method, id, parameters);
+                CallHierarchy.call_hierarchy_outgoing_calls (this, client, method, id, parameters);
                 break;
 
             case "textDocument/inlayHint":
-                show_inlay_hints (client, method, id, parameters);
+                InlayHints.show_inlay_hints (this, client, method, id, parameters);
                 break;
 
             case "textDocument/prepareTypeHierarchy":
-                prepare_type_hierarchy (client, method, id, parameters);
+                TypeHierarchy.prepare_type_hierarchy (this, client, method, id, parameters);
                 break;
 
             case "typeHierarchy/supertypes":
-                show_type_hierarchy (client, method, id, parameters, true);
+                TypeHierarchy.show_type_hierarchy (this, client, method, id, parameters, true);
                 break;
 
             case "typeHierarchy/subtypes":
-                show_type_hierarchy (client, method, id, parameters, false);
+                TypeHierarchy.show_type_hierarchy (this, client, method, id, parameters, false);
                 break;
 
             default:
@@ -293,7 +293,7 @@ class Vls.Server : Jsonrpc.Server {
      *
      * @param uri the URI of the file. may contain escape characters
      */
-    Vala.SourceFile? find_file (string uri, out Compilation? compilation = null, out Project? project = null) {
+    public Vala.SourceFile? find_file (string uri, out Compilation? compilation = null, out Project? project = null) {
         var results = new ArrayList<Pair<Vala.SourceFile, Compilation>> ();
         Project? selected_project = null;
         foreach (var p in projects.get_keys_as_array ()) {
@@ -1006,133 +1006,29 @@ class Vls.Server : Jsonrpc.Server {
         return (!) best;
     }
 
-    void goto_definition (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? file = find_file (p.textDocument.uri, out compilation, out project);
-            if (file == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-            var fs = new NodeSearch (file, p.position, true);
-
-            if (fs.result.size == 0) {
-                debug ("[%s] find symbol is empty", method);
-                try {
-                    client.reply (id, new Variant.maybe (VariantType.VARIANT, null), cancellable);
-                } catch (Error e) {
-                    debug("[textDocument/definition] failed to reply to client: %s", e.message);
-                }
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.CodeNode? best = get_best (fs, file);
-
-            if (best is Vala.Expression && !(best is Vala.Literal)) {
-                var b = (Vala.Expression)best;
-                debug ("best (%p) is a Expression (symbol_reference = %p)", best, b.symbol_reference);
-                if (b.symbol_reference != null && b.symbol_reference.source_reference != null) {
-                    best = b.symbol_reference;
-                    debug ("best is now the symbol_referenece => %p (%s)", best, best.to_string ());
-                }
-            } else if (best is Vala.DataType) {
-                best = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) best);
-            } else if (best is Vala.UsingDirective) {
-                best = ((Vala.UsingDirective)best).namespace_symbol;
-            } else if (best is Vala.Method) {
-                var m = (Vala.Method)best;
-
-                if (m.base_interface_method != m && m.base_interface_method != null)
-                    best = m.base_interface_method;
-                else if (m.base_method != m && m.base_method != null)
-                    best = m.base_method;
-            } else if (best is Vala.Property) {
-                var prop = (Vala.Property)best;
-
-                if (prop.base_interface_property != prop && prop.base_interface_property != null)
-                    best = prop.base_interface_property;
-                else if (prop.base_property != prop && prop.base_property != null)
-                    best = prop.base_property;
-            } else {
-                debug ("[%s] best is %s, which we can't handle", method, best != null ? best.type_name : null);
-                try {
-                    client.reply (id, new Variant.maybe (VariantType.VARIANT, null), cancellable);
-                } catch (Error e) {
-                    debug("[textDocument/definition] failed to reply to client: %s", e.message);
-                }
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            if (best is Vala.Symbol)
-                best = SymbolReferences.find_real_symbol (project, (Vala.Symbol) best);
-
-            var location = new Location.from_sourceref (best.source_reference);
-            debug ("[textDocument/definition] found location ... %s", location.uri);
-            try {
-                client.reply (id, Util.object_to_variant (location), cancellable);
-            } catch (Error e) {
-                debug("[textDocument/definition] failed to reply to client: %s", e.message);
-            }
-            Vala.CodeContext.pop ();
-        });
+    // Search for the most relevant code node at the given position. Returns
+    // null when nothing is found there. The caller must have pushed the
+    // relevant code context.
+    public static Vala.CodeNode? resolve_best_node (Vala.SourceFile file, Position pos,
+                                                     bool search_multiline = true) {
+        var fs = new NodeSearch (file, pos, search_multiline);
+        if (fs.result.size == 0)
+            return null;
+        return get_best (fs, file);
     }
 
-    void document_symbol_outline (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? file = find_file (p.textDocument.uri, out compilation, out project);
-            if (file == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-
-            var array = new Json.Array ();
-            var syms = compilation.get_analysis_for_file<SymbolEnumerator> (file);
-            if (init_params.capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport)
-                foreach (var dsym in syms) {
-                    // debug(@"found $(dsym.name)");
-                    array.add_element (Json.gobject_serialize (dsym));
-                }
-            else {
-                foreach (var dsym in syms.flattened ()) {
-                    // debug(@"found $(dsym.name)");
-                    array.add_element (Json.gobject_serialize (dsym));
-                }
-            }
-
-            try {
-                Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
-                client.reply (id, result, cancellable);
-            } catch (Error e) {
-                debug (@"[textDocument/documentSymbol] failed to reply to client: $(e.message)");
-            }
-            Vala.CodeContext.pop ();
-        });
+    // Resolve an expression / data type / using directive to the symbol it
+    // refers to, leaving other node kinds untouched.
+    public static Vala.CodeNode? unwrap_to_symbol (Vala.CodeNode node) {
+        if (node is Vala.Expression && ((Vala.Expression) node).symbol_reference != null)
+            return ((Vala.Expression) node).symbol_reference;
+        if (node is Vala.DataType)
+            return SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) node);
+        if (node is Vala.UsingDirective && ((Vala.UsingDirective) node).namespace_symbol != null)
+            return ((Vala.UsingDirective) node).namespace_symbol;
+        return node;
     }
+
 
     public DocComment? get_symbol_documentation (Project project, Vala.Symbol sym) {
         Compilation compilation = null;
@@ -1219,403 +1115,6 @@ class Vls.Server : Jsonrpc.Server {
                                             p.position);
     }
 
-    void hover (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, "textDocument/hover");
-                return;
-            }
-
-            Position pos = p.position;
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-
-            var fs = new NodeSearch (doc, pos, true);
-
-            if (fs.result.size == 0) {
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.Scope scope = (new FindScope (doc, pos)).best_block.scope;
-            Vala.CodeNode result = get_best (fs, doc);
-            // don't show lambda expressions on hover
-            // don't show property accessors
-            if (result is Vala.Method && ((Vala.Method)result).closure ||
-                result is Vala.PropertyAccessor) {
-                reply_null (id, client, "textDocument/hover");
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            // the instance's data type, used to resolve the symbol, which may be a member
-            Vala.DataType? data_type = null;
-            Vala.List<Vala.DataType>? method_type_arguments = null;
-            Vala.Symbol? symbol = null;
-
-            if (result is Vala.Expression) {
-                var expr = (Vala.Expression) result;
-                symbol = expr.symbol_reference;
-                data_type = expr.value_type;
-                if (symbol != null && expr is Vala.MemberAccess) {
-                    var ma = (Vala.MemberAccess) expr;
-                    if (ma.inner != null && ma.inner.value_type != null) {
-                        // get inner's data_type, which we can use to resolve expr's generic type
-                        data_type = ma.inner.value_type;
-                    }
-                    method_type_arguments = ma.get_type_arguments ();
-                }
-
-                if (expr.parent_node is Vala.ObjectCreationExpression)
-                    data_type = ((Vala.ObjectCreationExpression)expr.parent_node).value_type;
-
-                // if data_type is the same as this variable's type, then this variable is not a member
-                // of the type 
-                // (note: this avoids variable's generic type arguments being resolved to InvalidType)
-                if (symbol is Vala.Variable && data_type != null && data_type.equals (((Vala.Variable)symbol).variable_type))
-                    data_type = null;
-            } else if (result is Vala.Symbol) {
-                symbol = (Vala.Symbol) result;
-            } else if (result is Vala.DataType) {
-                data_type = (Vala.DataType) result;
-                symbol = SymbolReferences.get_symbol_data_type_refers_to (data_type);
-            } else if (result is Vala.UsingDirective) {
-                symbol = ((Vala.UsingDirective)result).namespace_symbol;
-            } else {
-                warning ("result as %s not matched", result.type_name);
-            }
-
-            // don't show temporary variables
-            if (symbol != null && symbol.name != null && symbol.name[0] == '.' && symbol.name[1].isdigit ()) {
-                if (symbol is Vala.Variable && data_type == null)
-                    data_type = ((Vala.Variable)symbol).variable_type;
-                symbol = null;
-            }
-
-            // debug ("(parent) data_type is %s, symbol is %s",
-            //         CodeHelp.get_symbol_representation (data_type, null, scope, false),
-            //         CodeHelp.get_symbol_representation (null, symbol, scope, false));
-
-            var hoverInfo = new Hover ();
-
-            Range? symbol_range = null;
-            if (symbol != null) {
-                symbol_range = SymbolReferences.get_replacement_range (result, symbol);
-                if (symbol_range != null) {
-                    // if the symbol range does not include the cursor, then try
-                    // to get the hidden symbol at the cursor first
-                    bool found_component = false;
-                    if (!symbol_range.contains (pos)) {
-                        foreach (var component in SymbolReferences.get_visible_components_of_code_node (result)) {
-                            if (component.second.contains (pos)) {
-                                hoverInfo.range = component.second;
-                                symbol = component.first;
-                                data_type = null;
-                                method_type_arguments = null;
-                                found_component = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!found_component)
-                        hoverInfo.range = symbol_range;
-                }
-            }
-
-            if (symbol_range == null)
-                hoverInfo.range = new Range.from_sourceref (result.source_reference);
-
-            string? representation = CodeHelp.get_symbol_representation (data_type, symbol, scope, true, method_type_arguments);
-            if (representation != null) {
-                hoverInfo.contents.add (new MarkedString () {
-                    language = "vala",
-                    value = representation
-                });
-                
-                if (symbol != null) {
-                    var comment = get_symbol_documentation (project, symbol);
-                    if (comment != null) {
-                        hoverInfo.contents.add (new MarkedString () {
-                            value = comment.body
-                        });
-                        // if (symbol is Vala.Callable && ((Vala.Callable)symbol).get_parameters () != null) {
-                        //     var param_list = ((Vala.Callable) symbol).get_parameters ();
-                        //     foreach (var parameter in param_list) {
-                        //         if (parameter.name == null)
-                        //             break;
-                        //         string? param_doc = comment.parameters[parameter.name];
-                        //         if (param_doc == null)
-                        //             continue;
-                        //         hoverInfo.contents.add (new MarkedString () {
-                        //             value = @"`$(parameter.name)` \u2014 $param_doc"
-                        //         });
-                        //     }
-                        // }
-                        // if (comment.return_body != null)
-                        //     hoverInfo.contents.add (new MarkedString () {
-                        //         value = @"**returns** $(comment.return_body)"
-                        //     });
-                    }
-                }
-            }
-
-            try {
-                client.reply (id, Util.object_to_variant (hoverInfo), cancellable);
-            } catch (Error e) {
-                warning ("[%s] failed to reply to client: %s", method, e.message);
-            }
-
-            Vala.CodeContext.pop ();
-        });
-    }
-
-    DocumentHighlightKind determine_node_highlight_kind (Vala.CodeNode node) {
-        Vala.CodeNode? previous_node = node;
-
-        for (Vala.CodeNode? current_node = node.parent_node;
-             current_node != null;
-             current_node = current_node.parent_node,
-             previous_node = current_node) {
-            if (current_node is Vala.MethodCall)
-                return DocumentHighlightKind.Read;
-            else if (current_node is Vala.Assignment) {
-                if (previous_node == ((Vala.Assignment)current_node).left)
-                    return DocumentHighlightKind.Write;
-                else if (previous_node == ((Vala.Assignment)current_node).right)
-                    return DocumentHighlightKind.Read;
-            } else if (current_node is Vala.DeclarationStatement &&
-                node == ((Vala.DeclarationStatement)current_node).declaration)
-                return DocumentHighlightKind.Write;
-            else if (current_node is Vala.ForeachStatement &&
-                node == ((Vala.ForeachStatement)current_node).element_variable)
-                return DocumentHighlightKind.Write;
-            else if (current_node is Vala.Statement)
-                return DocumentHighlightKind.Read;
-        }
-
-        return DocumentHighlightKind.Text;
-    }
-
-    void show_references (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<ReferenceParams>(@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            bool is_highlight = method == "textDocument/documentHighlight";
-            bool include_declaration = p.context != null ? p.context.includeDeclaration : true;
-            Position pos = p.position;
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-
-            var fs = new NodeSearch (doc, pos, true);
-
-            if (fs.result.size == 0) {
-                debug (@"[$method] no results found");
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.CodeNode result = get_best (fs, doc);
-            Vala.Symbol symbol;
-            var json_array = new Json.Array ();
-            var references = new Gee.HashMap<Range, Vala.CodeNode> ();
-
-            if (result is Vala.Expression && ((Vala.Expression)result).symbol_reference != null)
-                result = ((Vala.Expression) result).symbol_reference;
-            else if (result is Vala.DataType) {
-                result = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) result);
-            } else if (result is Vala.UsingDirective && ((Vala.UsingDirective)result).namespace_symbol != null)
-                result = ((Vala.UsingDirective) result).namespace_symbol;
-
-            // ignore lambda expressions and non-symbols
-            if (!(result is Vala.Symbol) ||
-                result is Vala.Method && ((Vala.Method)result).closure) {
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            symbol = (Vala.Symbol) result;
-
-            debug (@"[$method] got best: $result ($(result.type_name))");
-            if (is_highlight || symbol is Vala.LocalVariable) {
-                // if highlight, show references in current file
-                // otherwise, we may also do this if it's a local variable, since
-                // Server.get_compilations_using_symbol() only works for global symbols
-                SymbolReferences.list_in_file (doc, symbol, include_declaration, true, references);
-            } else {
-                // show references in all files
-                var generated_vapis = new HashSet<File> (Util.file_hash, Util.file_equal);
-                foreach (var btarget in project.get_compilations ())
-                    generated_vapis.add_all (btarget.output);
-                var shown_files = new HashSet<File> (Util.file_hash, Util.file_equal);
-                foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol))
-                    foreach (Vala.SourceFile project_file in btarget_w_sym.first.code_context.get_source_files ()) {
-                        // don't show symbol from generated VAPI
-                        var file = File.new_for_commandline_arg (project_file.filename);
-                        if (file in generated_vapis || file in shown_files)
-                            continue;
-                        SymbolReferences.list_in_file (project_file, btarget_w_sym.second, include_declaration, true, references);
-                        shown_files.add (file);
-                    }
-            }
-            
-            debug (@"[$method] found $(references.size) reference(s)");
-            foreach (var entry in references) {
-                if (is_highlight) {
-                    json_array.add_element (Json.gobject_serialize (new DocumentHighlight () {
-                        range = entry.key,
-                        kind = determine_node_highlight_kind (entry.value)
-                    }));
-                } else {
-                    json_array.add_element (Json.gobject_serialize (new Location (entry.value.source_reference.file.filename, entry.key)));
-                }
-            }
-
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
-            }
-
-            Vala.CodeContext.pop ();
-        });
-    }
-
-    void show_implementations (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            Position pos = p.position;
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-
-            var fs = new NodeSearch (doc, pos, true);
-
-            if (fs.result.size == 0) {
-                debug (@"[$method] no results found");
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.CodeNode result = get_best (fs, doc);
-            Vala.Symbol symbol;
-
-            var json_array = new Json.Array ();
-            var references = new Gee.ArrayList<Vala.CodeNode> ();
-
-            if (result is Vala.DataType && ((Vala.DataType)result).type_symbol != null)
-                result = ((Vala.DataType) result).type_symbol;
-
-            debug (@"[$method] got best: $result ($(result.type_name))");
-            bool is_abstract_type = (result is Vala.Interface) || ((result is Vala.Class) && ((Vala.Class)result).is_abstract);
-            bool is_abstract_or_virtual_method = (result is Vala.Method) && 
-                (((Vala.Method)result).is_abstract || ((Vala.Method)result).is_virtual);
-            bool is_abstract_or_virtual_property = (result is Vala.Property) &&
-                (((Vala.Property)result).is_abstract || ((Vala.Property)result).is_virtual);
-
-            if (!is_abstract_type && !is_abstract_or_virtual_method && !is_abstract_or_virtual_property) {
-                debug (@"[$method] best is neither an abstract type/interface nor abstract/virtual method/property");
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            } else {
-                symbol = (Vala.Symbol) result;
-            }
-
-            // show references in all files
-            var generated_vapis = new HashSet<File> (Util.file_hash, Util.file_equal);
-            foreach (var btarget in project.get_compilations ())
-                generated_vapis.add_all (btarget.output);
-            var shown_files = new HashSet<File> (Util.file_hash, Util.file_equal);
-            foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol)) {
-                foreach (var file in btarget_w_sym.first.code_context.get_source_files ()) {
-                    var gfile = File.new_for_commandline_arg (file.filename);
-                    // don't show symbol from generated VAPI
-                    if (gfile in generated_vapis || gfile in shown_files)
-                        continue;
-
-                    NodeSearch fs2;
-                    if (is_abstract_type) {
-                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => node is Vala.ObjectTypeSymbol && 
-                            ((Vala.ObjectTypeSymbol)node).is_subtype_of ((Vala.ObjectTypeSymbol) needle), false);
-                    } else if (is_abstract_or_virtual_method) {
-                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => needle != node && (node is Vala.Method) && 
-                            (((Vala.Method)node).base_method == needle ||
-                            ((Vala.Method)node).base_interface_method == needle), false);
-                    } else {
-                        fs2 = new NodeSearch.with_filter (file, symbol,
-                        (needle, node) => needle != node && (node is Vala.Property) &&
-                            (((Vala.Property)node).base_property == needle ||
-                            ((Vala.Property)node).base_interface_property == needle), false);
-                    }
-                    references.add_all (fs2.result);
-                    shown_files.add (gfile);
-                }
-            }
-
-            debug (@"[$method] found $(references.size) reference(s)");
-            foreach (var node in references) {
-                Vala.CodeNode real_node = node;
-                if (node is Vala.Symbol)
-                    real_node = SymbolReferences.find_real_symbol (project, (Vala.Symbol) node);
-                json_array.add_element (Json.gobject_serialize (new Location.from_sourceref (real_node.source_reference)));
-            }
-
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
-            }
-
-            Vala.CodeContext.pop ();
-        });
-    }
-    
     void format (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<DocumentRangeFormattingParams>(@params);
 
@@ -1681,303 +1180,6 @@ class Vls.Server : Jsonrpc.Server {
         }
     }
 
-    void search_workspace_symbols (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var query = (string) @params.lookup_value ("query", VariantType.STRING);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            var json_array = new Json.Array ();
-            Project[] all_projects = projects.get_keys_as_array ();
-            all_projects += default_project;
-            foreach (var project in all_projects) {
-                foreach (var source_pair in project.get_project_source_files ()) {
-                    var text_document = source_pair.key;
-                    var compilation = source_pair.value;
-                    Vala.CodeContext.push (compilation.code_context);
-                    var symbol_enumerator = compilation.get_analysis_for_file<SymbolEnumerator> (text_document);
-                    if (symbol_enumerator != null) {
-                        symbol_enumerator
-                            .flattened ()
-                            // NOTE: if introspection for g_str_match_string () / string.match_string ()
-                            // is fixed, this will have to be changed to `dsym.name.match_sting (query, true)`
-                            .filter (dsym => query.match_string (dsym.name, true))
-                            .foreach (dsym => {
-                                json_array.add_element (Json.gobject_serialize (dsym));
-                                return true;
-                            });
-                    }
-                    Vala.CodeContext.pop ();
-                }
-            }
-
-            debug (@"[$method] found $(json_array.get_length ()) element(s) matching `$query'");
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
-            }
-        });
-    }
-
-    void rename_symbol (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        string new_name = (string) @params.lookup_value ("newName", VariantType.STRING);
-
-        // before anything, sanity-check the new symbol name
-        if (!/^(?=[^\d])[^\s~`!#%^&*()\-\+={}\[\]|\\\/?.>,<'";:]+$/.match (new_name)) {
-            client.reply_error_async.begin (
-                id, 
-                Jsonrpc.ClientError.INVALID_REQUEST, 
-                "Invalid symbol name. Symbol names cannot start with a number and must not contain any operators.", 
-                cancellable);
-            return;
-        }
-
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            Position pos = p.position;
-            Project project;
-            Compilation compilation;
-            Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
-
-            var fs = new NodeSearch (doc, pos, true);
-
-            if (fs.result.size == 0) {
-                debug (@"[$method] no results found");
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.CodeNode result = get_best (fs, doc);
-            Vala.Symbol symbol;
-            var references = new Gee.HashMap<Range, Vala.CodeNode> ();
-
-            if (result is Vala.Expression && ((Vala.Expression)result).symbol_reference != null)
-                result = ((Vala.Expression) result).symbol_reference;
-            else if (result is Vala.DataType) {
-                result = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) result);
-            } else if (result is Vala.UsingDirective && ((Vala.UsingDirective)result).namespace_symbol != null)
-                result = ((Vala.UsingDirective) result).namespace_symbol;
-
-            // ignore lambda expressions and non-symbols
-            if (!(result is Vala.Symbol) ||
-                result is Vala.Method && ((Vala.Method)result).closure) {
-                debug ("[%s] result is not a symbol", method);
-                reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            symbol = (Vala.Symbol) result;
-
-            debug ("[%s] got symbol %s @ %s", method, symbol.get_full_name (), symbol.source_reference.to_string ());
-
-            // get references in all files
-            var generated_vapis = new HashSet<File> (Util.file_hash, Util.file_equal);
-            foreach (var btarget in project.get_compilations ())
-                generated_vapis.add_all (btarget.output);
-            var shown_files = new HashSet<File> (Util.file_hash, Util.file_equal);
-            bool is_abstract_or_virtual = 
-                symbol is Vala.Property && (((Vala.Property)symbol).is_virtual || ((Vala.Property)symbol).is_abstract) ||
-                symbol is Vala.Method && (((Vala.Method)symbol).is_virtual || ((Vala.Method)symbol).is_abstract) ||
-                symbol is Vala.Signal && ((Vala.Signal)symbol).is_virtual;
-            foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol))
-                foreach (Vala.SourceFile project_file in btarget_w_sym.first.code_context.get_source_files ()) {
-                    // don't show symbol from generated VAPI
-                    var file = File.new_for_commandline_arg (project_file.filename);
-                    if (file in generated_vapis || file in shown_files)
-                        continue;
-                    var file_references = new HashMap<Range, Vala.CodeNode> ();
-                    debug ("[%s] looking for references in %s ...", method, file.get_uri ());
-                    SymbolReferences.list_in_file (project_file, btarget_w_sym.second, true, false, file_references);
-                    if (is_abstract_or_virtual) {
-                        debug ("[%s] looking for implementations of abstract/virtual symbol in %s ...", method, file.get_uri ());
-                        SymbolReferences.list_implementations_of_virtual_symbol (project_file, btarget_w_sym.second, file_references);
-                    }
-                    if (!(project_file is TextDocument) && file_references.size > 0) {
-                        // This means we have found references in a file that was added automatically,
-                        // which should not be modified.
-                        debug ("[%s] disallowing requested modification of %s", method, project_file.filename);
-                        reply_null (id, client, method);
-                        Vala.CodeContext.pop ();
-                        return;
-                    }
-                    foreach (var entry in file_references)
-                        references[entry.key] = entry.value;
-                    shown_files.add (file);
-                }
-            
-            debug ("[%s] found %d references", method, references.size);
-            
-            // construct the edits for the text documents
-            // map: file URI -> TextEdit[]
-            var edits = new HashMap<string, ArrayList<TextEdit>> ();
-            var source_files = new HashMap<string, Vala.SourceFile> ();
-
-            foreach (var entry in references) {
-                var code_node = entry.value;
-                var source_range = entry.key;
-                debug ("[%s] editing reference %s @ %s ...", 
-                    method, 
-                    CodeHelp.get_code_node_source (code_node), 
-                    code_node.source_reference.to_string ());
-                var file = File.new_for_commandline_arg (code_node.source_reference.file.filename);
-                if (!edits.has_key (file.get_uri ()))
-                    edits[file.get_uri ()] = new ArrayList<TextEdit> ();
-                var file_edits = edits[file.get_uri ()];
-                // if this is a using directive, we want to only replace the part after the 'using' keyword
-                file_edits.add (new TextEdit (source_range, new_name));
-                source_files[file.get_uri ()] = code_node.source_reference.file;
-            }
-
-            // TODO: determine support for TextDocumentEdit
-            var text_document_edits_json = new Json.Array ();
-            foreach (var uri in edits.keys) {
-                var document_id = new VersionedTextDocumentIdentifier () {
-                    version = ((TextDocument) source_files[uri]).version,
-                    uri = uri
-                };
-                text_document_edits_json.add_element (Json.gobject_serialize (new TextDocumentEdit (document_id) {
-                    edits = edits[uri]
-                }));
-            }
-
-            try {
-                Variant changes = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (text_document_edits_json), null);
-                client.reply (
-                    id, 
-                    build_dict (
-                        documentChanges: changes
-                    ),
-                    cancellable);
-            } catch (Error e) {
-                warning ("[%s] failed to reply to client - %s", method, e.message);
-            }
-
-            Vala.CodeContext.pop ();
-        });
-    }
-    
-    void prepare_rename_symbol (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                reply_null (id, client, method);
-                return;
-            }
-
-            Position pos = p.position;
-            Project project;
-            Compilation compilation;
-            Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-                reply_null (id, client, method);
-                return;
-            }
-            
-            Vala.CodeContext.push (compilation.code_context);
-
-            var fs = new NodeSearch (doc, pos, true);
-
-            if (fs.result.size == 0) {
-                client.reply_error_async.begin (
-                    id,
-                    Jsonrpc.ClientError.INVALID_REQUEST,
-                    "There is no symbol at the cursor.",
-                    cancellable);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            Vala.CodeNode initial_result = get_best (fs, doc);
-            Vala.CodeNode result = initial_result;
-            Vala.Symbol symbol;
-
-            if (result is Vala.Expression && ((Vala.Expression)result).symbol_reference != null)
-                result = ((Vala.Expression) result).symbol_reference;
-            else if (result is Vala.DataType) {
-                result = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) result);
-            } else if (result is Vala.UsingDirective && ((Vala.UsingDirective)result).namespace_symbol != null)
-                result = ((Vala.UsingDirective) result).namespace_symbol;
-
-            // ignore lambda expressions and non-symbols
-            if (!(result is Vala.Symbol) ||
-                result is Vala.Method && ((Vala.Method)result).closure) {
-                // TODO: rewrite all code to use async
-                client.reply_error_async.begin (
-                    id, 
-                    Jsonrpc.ClientError.INVALID_REQUEST, 
-                    "There is no symbol at the cursor.", 
-                    cancellable);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            symbol = (Vala.Symbol) result;
-
-            var replacement_range = SymbolReferences.get_replacement_range (initial_result, symbol);
-            // If the source_reference is null, then this could be something like a
-            // `this' parameter.
-            if (replacement_range == null || symbol.source_reference == null) {
-                client.reply_error_async.begin (
-                    id,
-                    Jsonrpc.ClientError.INVALID_REQUEST,
-                    "There is no symbol at the cursor.",
-                    cancellable);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol)) {
-                if (!(btarget_w_sym.second.source_reference.file is TextDocument)) {
-                    // This means we have found references in a file that was added automatically,
-                    // which should not be modified.
-                    // TODO: rewrite all code to use async
-                    string? pkg = btarget_w_sym.second.source_reference.file.package_name;
-                    client.reply_error_async.begin (
-                        id, 
-                        Jsonrpc.ClientError.INVALID_REQUEST, 
-                        "Cannot rename a symbol defined in a system library" + (pkg != null ? @" ($pkg)." : "."),
-                        cancellable);
-                    Vala.CodeContext.pop ();
-                    return;
-                }
-            }
-
-            try {
-                client.reply (
-                    id,
-                    build_dict (
-                        range: Util.object_to_variant (replacement_range),
-                        placeholder: new Variant.string (symbol.name)
-                    ),
-                    cancellable);
-            } catch (Error e) {
-                warning ("[%s] failed to reply with success - %s", method, e.message);
-            }
-            Vala.CodeContext.pop ();
-        });
-    }
 
     /**
      * handle an incoming `textDocument/codeLens` request
@@ -2004,383 +1206,6 @@ class Vls.Server : Jsonrpc.Server {
         CodeLensEngine.begin_response (this, project, client, id, method, file, compilation);
     }
 
-    void prepare_call_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-
-        var fs = new NodeSearch (doc, p.position);
-
-        if (fs.result.size == 0) {
-            debug (@"[$method] no results found");
-            reply_null (id, client, method);
-            Vala.CodeContext.pop ();
-            return;
-        }
-
-        Vala.CodeNode result = get_best (fs, doc);
-        Vala.CodeContext.pop ();
-
-        Vala.Method method_sym;
-
-        if (result is Vala.Method) {
-            method_sym = (Vala.Method)result;
-        } else if (result is Vala.MethodCall) {
-            var call_method = ((Vala.MethodCall)result).call.symbol_reference as Vala.Method;
-            if (call_method == null) {
-                reply_null (id, client, method);
-                return;
-            }
-            method_sym = call_method;
-        } else if (result is Vala.Expression && ((Vala.Expression)result).symbol_reference is Vala.Method) {
-            method_sym = (Vala.Method) ((Vala.Expression)result).symbol_reference;
-        } else {
-            reply_null (id, client, method);
-            return;
-        }
-
-        try {
-            var array = new Variant.array (null, {
-                Util.object_to_variant (new CallHierarchyItem.from_symbol (method_sym))
-            });
-            client.reply (id, array, cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
-    }
-
-    void call_hierarchy_incoming_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<CallHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, item.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-
-        var symbol = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope);
-        if (!(symbol is Vala.Callable || symbol is Vala.Subroutine)) {
-            Vala.CodeContext.pop ();
-            reply_null (id, client, method);
-            return;
-        }
-
-        // get all methods that call this method
-        try {
-            Variant[] incoming_va = {};
-            foreach (var incoming_call in CallHierarchy.get_incoming_calls (project, symbol))
-                incoming_va += Util.object_to_variant (incoming_call);
-            Vala.CodeContext.pop ();
-            client.reply (id, new Variant.array (VariantType.VARDICT, incoming_va), cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
-    }
-
-    void call_hierarchy_outgoing_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<CallHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, item.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-
-        var subroutine = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope) as Vala.Subroutine;
-        if (subroutine == null) {
-            Vala.CodeContext.pop ();
-            reply_null (id, client, method);
-            return;
-        }
-
-        // get all methods called by this method
-        try {
-            Variant[] outgoing_va = {};
-            foreach (var outgoing_call in CallHierarchy.get_outgoing_calls (project, subroutine))
-                outgoing_va += Util.object_to_variant (outgoing_call);
-            Vala.CodeContext.pop ();
-            client.reply (id, new Variant.array (VariantType.VARDICT, outgoing_va), cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
-    }
-
-    void show_inlay_hints (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<InlayHintParams> (@params);
-
-        Compilation? compilation;
-        var file = find_file (p.textDocument.uri, out compilation);
-        if (file == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-        var query = new NodeSearch.within (file, p.range, false);
-        if (query.result.is_empty) {
-            debug ("[%s] nothing found at %s", method, p.range.to_string ());
-            Vala.CodeContext.pop ();
-            reply_null (id, client, method);
-            return;
-        }
-
-        InlayHint[] hints = {};
-
-        foreach (var item in query.result) {
-            Vala.LocalVariable? local = null;
-            var representation = CodeHelp.get_code_node_source (item);
-            MatchInfo foreach_match;
-            if (item is Vala.DeclarationStatement)
-                local = ((Vala.DeclarationStatement)item).declaration as Vala.LocalVariable;
-            if (local != null && local.source_reference != null && !(local.initializer is Vala.ObjectCreationExpression) &&
-                local in compilation.var_decls) {
-                // show inlay hints for local variables with non-obvious inferred types
-                hints += new InlayHint () {
-                    position = new Position.from_libvala (local.source_reference.end),
-                    label = ":%s".printf (CodeHelp.get_data_type_representation (local.variable_type, null)),
-                    kind = InlayHintKind.TYPE,
-                    paddingLeft = true
-                };
-            } else if (/foreach\s*\(\s*var\s+(\w+)/m.match (representation, 0, out foreach_match)) {
-                // HACK for foreach statements (includes generated decls of foreach element vars)
-                int start, end;
-                if (foreach_match.fetch_pos (1, out start, out end)) {
-                    // extract element variable type
-                    Vala.DataType? element_type = null;
-                    if (item is Vala.ForeachStatement && !(((Vala.ForeachStatement)item).type_reference is Vala.VarType) &&
-                        ((Vala.ForeachStatement)item).element_variable != null) {
-                        // the element variable type will be the same as [type_reference]
-                        // we only have an element variable with foreach statements on arrays
-                        element_type = ((Vala.ForeachStatement)item).type_reference;
-                    } else if (local != null) {
-                        // there is an auto-generated declaration for a foreach statement iterator variable
-                        element_type = local.variable_type;
-                        // make sure this declaration is actually the element variable
-                        bool is_element_var = false;
-                        for (Vala.CodeNode? current_node = local; current_node != null; current_node = current_node.parent_node) {
-                            if (current_node is Vala.ForeachStatement) {
-                                var stmt = (Vala.ForeachStatement)current_node;
-                                is_element_var = stmt.variable_name == local.name;
-                                break;
-                            }
-                        }
-                        if (!is_element_var)
-                            continue;
-                    } else {
-                        // otherwise, continue
-                        continue;
-                    }
-
-                    var range = SymbolReferences.get_narrowed_source_reference (item.source_reference, representation, start, end);
-                    hints += new InlayHint () {
-                        position = range.end,
-                        label = ":%s".printf (CodeHelp.get_data_type_representation (element_type, null)),
-                        kind = InlayHintKind.TYPE,
-                        paddingLeft = true
-                    };
-                }
-            } else if (item is Vala.LambdaExpression) {
-                var lambda = (Vala.LambdaExpression)item;
-                foreach (var param in lambda.get_parameters ()) {
-                    var range = new Range.from_sourceref (param.source_reference);
-                    if (param.variable_type != null) {
-                        hints += new InlayHint () {
-                            position = range.start,
-                            label = CodeHelp.get_data_type_representation (param.variable_type, null),
-                            kind = InlayHintKind.PARAMETER,
-                            paddingRight = true
-                        };
-                    }
-                }
-            } else if ((item is Vala.MethodCall || item is Vala.ObjectCreationExpression) && compilation.method_calls.has_key (item)) {
-                Vala.List<Vala.Parameter>? parameters = null;
-                if (item is Vala.MethodCall) {
-                    var mc = (Vala.MethodCall)item;
-                    if (mc.call.value_type != null)
-                        parameters = mc.call.value_type.get_parameters ();
-                } else {
-                    var oce = (Vala.ObjectCreationExpression)item;
-                    if (oce.member_name != null && oce.member_name.symbol_reference is Vala.Callable)
-                        parameters = ((Vala.Callable)oce.member_name.symbol_reference).get_parameters ();
-                    else if (oce.type_reference != null)
-                        parameters = oce.type_reference.get_parameters ();
-                }
-                if (parameters != null) {
-                    int orig_param_count = compilation.method_calls[item];
-                    var iter = parameters.iterator ();
-                    var args_i = 0;
-                    Vala.Parameter? last_ellipsis = null;
-                    Vala.List<Vala.Expression> argument_list;
-                    if (item is Vala.MethodCall)
-                        argument_list = ((Vala.MethodCall)item).get_argument_list ();
-                    else
-                        argument_list = ((Vala.ObjectCreationExpression)item).get_argument_list ();
-                    foreach (var arg in argument_list) {
-                        if (arg.source_reference == null) {
-                            // ignore implicit parameters
-                            args_i++;
-                            continue;
-                        }
-                        if (args_i >= orig_param_count)
-                            break;
-                        if (arg is Vala.NamedArgument) {
-                            args_i++;
-                            continue;
-                        }
-                        if (!iter.next () && last_ellipsis == null)
-                            break;
-                        var formal_parameter = last_ellipsis ?? iter.get ();
-                        if (formal_parameter.ellipsis)
-                            last_ellipsis = formal_parameter;
-                        var parameter_name = formal_parameter.name ?? @"arg$args_i";
-                        var argument = arg;
-                        if (argument is Vala.UnaryExpression &&
-                            (((Vala.UnaryExpression)argument).operator == Vala.UnaryOperator.REF|| ((Vala.UnaryExpression)argument).operator == Vala.UnaryOperator.OUT))
-                            argument = ((Vala.UnaryExpression)argument).inner;
-                        if (CodeHelp.get_code_node_source (argument).casefold () == parameter_name.casefold ()) {
-                            // no need to show formal parameter when the argument has the same name
-                            args_i++;
-                            continue;
-                        }
-                        var range = new Range.from_sourceref (arg.source_reference);
-                        hints += new InlayHint () {
-                            position = range.start,
-                            label = "%s:".printf (parameter_name),
-                            kind = InlayHintKind.PARAMETER,
-                            paddingRight = true
-                        };
-                        args_i++;
-                    }
-                }
-            }
-        }
-
-        Vala.CodeContext.pop ();
-        try {
-            Variant[] array = {};
-            foreach (var hint in hints)
-                array += Util.object_to_variant (hint);
-            client.reply (id, new Variant.array (VariantType.VARDICT, array), cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
-    }
-
-    void prepare_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        Project project;
-        Compilation compilation;
-        var doc = find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-
-        var fs = new NodeSearch (doc, p.position);
-
-        if (fs.result.size == 0) {
-            debug (@"[$method] no results found");
-            reply_null (id, client, method);
-            Vala.CodeContext.pop ();
-            return;
-        }
-
-        var result = get_best (fs, doc);
-        Vala.CodeContext.pop ();
-        Vala.TypeSymbol type_symbol;
-
-        if (result is Vala.TypeSymbol) {
-            type_symbol = (Vala.TypeSymbol)result;
-        } else if (result is Vala.DataType && ((Vala.DataType)result).type_symbol != null) {
-            type_symbol = ((Vala.DataType)result).type_symbol;
-        } else if (result is Vala.Expression && ((Vala.Expression)result).symbol_reference is Vala.TypeSymbol) {
-            type_symbol = (Vala.TypeSymbol)((Vala.Expression)result).symbol_reference;
-            // refine the symbol
-            foreach (var pair in SymbolReferences.get_visible_components_of_code_node (result)) {
-                var symbol = pair.first;
-                var range = pair.second;
-                if (symbol is Vala.TypeSymbol && range.contains (p.position)) {
-                    type_symbol = (Vala.TypeSymbol)symbol;
-                    break;
-                }
-            }
-        } else {
-            reply_null (id, client, method);
-            return;
-        }
-
-        try {
-            var array = new Variant.array (null, {
-                Util.object_to_variant (new TypeHierarchyItem.from_symbol (type_symbol))
-            });
-            client.reply (id, array, cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
-    }
-
-    void show_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params, bool supertypes) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<TypeHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, item.uri);
-            reply_null (id, client, method);
-            return;
-        }
-
-        Vala.CodeContext.push (compilation.code_context);
-        var symbol = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope);
-        if (!(symbol is Vala.TypeSymbol)) {
-            Vala.CodeContext.pop ();
-            reply_null (id, client, method);
-            return;
-        }
-
-        try {
-            Variant[] array = {};
-            if (supertypes) {
-                foreach (var supertype in TypeHierarchy.get_supertypes (project, (Vala.TypeSymbol)symbol))
-                    array += Util.object_to_variant (supertype);
-            } else {
-                foreach (var subtype in TypeHierarchy.get_subtypes (project, (Vala.TypeSymbol)symbol))
-                    array += Util.object_to_variant (subtype);
-            }
-            Vala.CodeContext.pop ();
-            client.reply (id, array, cancellable);
-        } catch (Error e) {
-            debug ("[%s] failed to reply to client: %s", method, e.message);
-        }
-    }
 
     void shutdown () {
         debug ("shutting down...");

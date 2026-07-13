@@ -92,4 +92,98 @@ namespace Vls.TypeHierarchy {
 
         return supertypes;
     }
+
+    void prepare_type_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
+
+        Project project;
+        Compilation compilation;
+        var doc = server.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            Server.reply_null (id, client, method);
+            return;
+        }
+
+        Vala.CodeContext.push (compilation.code_context);
+
+        var resolved = Server.resolve_best_node (doc, p.position, false);
+
+        if (resolved == null) {
+            debug (@"[$method] no results found");
+            Server.reply_null (id, client, method);
+            Vala.CodeContext.pop ();
+            return;
+        }
+
+        var node = (!) resolved;
+        Vala.CodeContext.pop ();
+        Vala.TypeSymbol type_symbol;
+
+        if (node is Vala.TypeSymbol) {
+            type_symbol = (Vala.TypeSymbol)node;
+        } else if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null) {
+            type_symbol = ((Vala.DataType)node).type_symbol;
+        } else if (node is Vala.Expression && ((Vala.Expression)node).symbol_reference is Vala.TypeSymbol) {
+            type_symbol = (Vala.TypeSymbol)((Vala.Expression)node).symbol_reference;
+            // refine the symbol
+            foreach (var pair in SymbolReferences.get_visible_components_of_code_node (node)) {
+                var symbol = pair.first;
+                var range = pair.second;
+                if (symbol is Vala.TypeSymbol && range.contains (p.position)) {
+                    type_symbol = (Vala.TypeSymbol)symbol;
+                    break;
+                }
+            }
+        } else {
+            Server.reply_null (id, client, method);
+            return;
+        }
+
+        try {
+            var array = new Variant.array (null, {
+                Util.object_to_variant (new TypeHierarchyItem.from_symbol (type_symbol))
+            });
+            client.reply (id, array, Server.cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    void show_type_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params, bool supertypes) {
+        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
+        var item = Util.parse_variant<TypeHierarchyItem> (itemv);
+
+        Project project;
+        Compilation compilation;
+        Vala.SourceFile? doc = server.find_file (item.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, item.uri);
+            Server.reply_null (id, client, method);
+            return;
+        }
+
+        Vala.CodeContext.push (compilation.code_context);
+        var symbol = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope);
+        if (!(symbol is Vala.TypeSymbol)) {
+            Vala.CodeContext.pop ();
+            Server.reply_null (id, client, method);
+            return;
+        }
+
+        try {
+            Variant[] array = {};
+            if (supertypes) {
+                foreach (var st in get_supertypes (project, (Vala.TypeSymbol)symbol))
+                    array += Util.object_to_variant (st);
+            } else {
+                foreach (var st in get_subtypes (project, (Vala.TypeSymbol)symbol))
+                    array += Util.object_to_variant (st);
+            }
+            Vala.CodeContext.pop ();
+            client.reply (id, array, Server.cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: %s", e.message);
+        }
+    }
 }
