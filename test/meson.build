@@ -52,6 +52,8 @@ integration_tests = [
   '/vls/integration/goto_definition',
   '/vls/integration/range_formatting',
   '/vls/integration/completion',
+  '/vls/integration/semantic_tokens_full',
+  '/vls/integration/semantic_tokens_coverage',
 ]
 
 foreach t : integration_tests

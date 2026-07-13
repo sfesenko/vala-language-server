@@ -1280,4 +1280,92 @@ namespace Lsp {
             }
         }
     }
+
+    class SemanticTokensParams : Object {
+        public TextDocumentIdentifier textDocument { get; set; }
+    }
+
+    class SemanticTokensDeltaParams : Object {
+        public TextDocumentIdentifier textDocument { get; set; }
+        public string? previousResultId { get; set; }
+    }
+
+    class SemanticTokensRangeParams : Object {
+        public TextDocumentIdentifier textDocument { get; set; }
+        public Range range { get; set; }
+    }
+
+    class SemanticTokensEdit : Object {
+        public int start { get; set; }
+        public int deleteCount { get; set; }
+        public Gee.ArrayList<uint>? data { get; set; }
+    }
+
+    class SemanticTokens : Object, Json.Serializable {
+        public string? resultId { get; set; }
+        public Gee.ArrayList<uint> data { get; private set; default = new Gee.ArrayList<uint> (); }
+
+        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
+            base.set_property (pspec.get_name (), value);
+        }
+
+        public new Value Json.Serializable.get_property (ParamSpec pspec) {
+            Value val = Value (pspec.value_type);
+            base.get_property (pspec.get_name (), ref val);
+            return val;
+        }
+
+        public unowned ParamSpec? find_property (string name) {
+            return this.get_class ().find_property (name);
+        }
+
+        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+            if (property_name != "data")
+                return default_serialize_property (property_name, value, pspec);
+            var node = new Json.Node (Json.NodeType.ARRAY);
+            node.init_array (new Json.Array ());
+            var array = node.get_array ();
+            foreach (var val in data)
+                array.add_int_element (val);
+            return node;
+        }
+
+        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
+            error ("deserialization not supported");
+        }
+    }
+
+    class SemanticTokensDelta : Object, Json.Serializable {
+        public string? resultId { get; set; }
+        public Gee.ArrayList<SemanticTokensEdit> edits { get; private set; default = new Gee.ArrayList<SemanticTokensEdit> (); }
+
+        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
+            base.set_property (pspec.get_name (), value);
+        }
+
+        public new Value Json.Serializable.get_property (ParamSpec pspec) {
+            Value val = Value (pspec.value_type);
+            base.get_property (pspec.get_name (), ref val);
+            return val;
+        }
+
+        public unowned ParamSpec? find_property (string name) {
+            return this.get_class ().find_property (name);
+        }
+
+        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+            if (property_name != "edits")
+                return default_serialize_property (property_name, value, pspec);
+            var node = new Json.Node (Json.NodeType.ARRAY);
+            node.init_array (new Json.Array ());
+            var array = node.get_array ();
+            foreach (var edit in edits)
+                array.add_element (Json.gobject_serialize (edit));
+            return node;
+        }
+
+        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
+            error ("deserialization not supported");
+        }
+    }
 }

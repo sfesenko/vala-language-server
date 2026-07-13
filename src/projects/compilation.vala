@@ -440,15 +440,21 @@ class Vls.Compilation : BuildTarget {
         }
         foreach (TextDocument doc in _project_sources.values) {
             if (doc.last_updated.compare (last_updated) > 0) {
+                debug ("[SEMTOK] build_if_stale: stale due to %s (lu=%s > comp_lu=%s)",
+                       doc.filename, doc.last_updated.to_string (), last_updated.to_string ());
                 stale = true;
                 break;
             }
         }
+        debug ("[SEMTOK] build_if_stale: stale=%s, updated_file=%s, first_compile=%s",
+               stale.to_string (), updated_file.to_string (), (!_completed_first_compile).to_string ());
         if (stale || !_completed_first_compile) {
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
             // TODO: cancellable compilation
+            debug ("[SEMTOK] compile: starting");
             compile ();
+            debug ("[SEMTOK] compile: done, last_updated=%s", last_updated.to_string ());
         } else if (updated_file) {
             // even if the files are unchanged after updates, we need to
             // silently update the last_updated property of this target at the
@@ -474,7 +480,15 @@ class Vls.Compilation : BuildTarget {
 
         // generate the analysis on demand if it doesn't exist or it is stale
         CodeAnalyzer? analysis = null;
-        if (!analyses.has_key (typeof (T)) || analyses[typeof (T)].last_updated.compare (last_updated) < 0) {
+        bool has_cached = analyses.has_key (typeof (T));
+        if (!has_cached || analyses[typeof (T)].last_updated.compare (last_updated) < 0) {
+            if (has_cached)
+                debug ("[SEMTOK] get_analysis_for_file: stale %s for %s (analysis_lu=%s < comp_lu=%s)",
+                       typeof (T).name (), source.filename,
+                       analyses[typeof (T)].last_updated.to_string (), last_updated.to_string ());
+            else
+                debug ("[SEMTOK] get_analysis_for_file: no cached %s for %s, creating",
+                       typeof (T).name (), source.filename);
             Vala.CodeContext.push (code_context);
             if (typeof (T) == typeof (CodeStyleAnalyzer)) {
                 analysis = new CodeStyleAnalyzer (source);
@@ -482,15 +496,21 @@ class Vls.Compilation : BuildTarget {
                 analysis = new SymbolEnumerator (source);
             } else if (typeof (T) == typeof (CodeLensAnalyzer)) {
                 analysis = new CodeLensAnalyzer (source);
+            } else if (typeof (T) == typeof (SemanticTokensAnalyzer)) {
+                analysis = new SemanticTokensAnalyzer (source);
             }
 
             if (analysis != null) {
                 analysis.last_updated = new DateTime.now ();
                 analyses[typeof (T)] = analysis;
+                debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
+                       typeof (T).name (), analysis.last_updated.to_string ());
             }
             Vala.CodeContext.pop ();
         } else {
             analysis = analyses[typeof (T)];
+            debug ("[SEMTOK] get_analysis_for_file: using cached %s for %s",
+                   typeof (T).name (), source.filename);
         }
 
         return analysis;

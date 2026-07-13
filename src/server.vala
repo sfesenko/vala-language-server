@@ -250,6 +250,18 @@ class Vls.Server : Jsonrpc.Server {
                 TypeHierarchy.show_type_hierarchy (this, client, method, id, parameters, false);
                 break;
 
+            case "textDocument/semanticTokens/full":
+                SemanticTokensHandler.full (this, client, method, id, parameters);
+                break;
+
+            case "textDocument/semanticTokens/full/delta":
+                SemanticTokensHandler.delta (this, client, method, id, parameters);
+                break;
+
+            case "textDocument/semanticTokens/range":
+                SemanticTokensHandler.range (this, client, method, id, parameters);
+                break;
+
             default:
                 warning ("unhandled call `%s'", method);
                 return false;
@@ -381,7 +393,24 @@ class Vls.Server : Jsonrpc.Server {
                     codeLensProvider: build_dict (resolveProvider: new Variant.boolean (false)),
                     callHierarchyProvider: new Variant.boolean (true),
                     inlayHintProvider: new Variant.boolean (true),
-                    typeHierarchyProvider: new Variant.boolean (true)
+                    typeHierarchyProvider: new Variant.boolean (true),
+                    semanticTokensProvider: build_dict (
+                        legend: build_dict (
+                            tokenTypes: new Variant.strv (new string[] {
+                                "namespace", "class", "enum", "interface", "struct",
+                                "typeParameter", "type", "parameter", "variable",
+                                "property", "enumMember", "event", "function",
+                                "method", "keyword", "string", "number", "comment", "operator"
+                            }),
+                            tokenModifiers: new Variant.strv (new string[] {
+                                "declaration", "definition", "readonly", "static",
+                                "deprecated", "abstract", "async", "documentation",
+                                "defaultLibrary"
+                            })
+                        ),
+                        full: build_dict (delta: new Variant.boolean (true)),
+                        range: new Variant.boolean (true)
+                    )
                 ),
                 serverInfo: build_dict (
                     name: new Variant.string ("Vala Language Server"),
@@ -560,8 +589,13 @@ class Vls.Server : Jsonrpc.Server {
             var tdoc = (TextDocument) doc;
             debug (@"[textDocument/didOpen] opened $(Uri.unescape_string (uri))"); 
             tdoc.last_saved_content = fileContents;
-            if (tdoc.content != fileContents) {
+            bool content_changed = tdoc.content != fileContents;
+            debug ("[SEMTOK] didOpen: uri=%s, content_len=%lu, content_changed=%s",
+                   Uri.unescape_string (uri), fileContents.length, content_changed.to_string ());
+            if (content_changed) {
                 tdoc.content = fileContents;
+                tdoc.last_updated = new DateTime.now ();
+                debug ("[SEMTOK] didOpen: set content, last_updated=%s", tdoc.last_updated.to_string ());
                 request_context_update (client);
                 debug (@"[textDocument/didOpen] requested context update");
             }
@@ -700,7 +734,8 @@ class Vls.Server : Jsonrpc.Server {
         update_context_requests += 1;
         int64 delay_us = int64.min (update_context_delay_inc_us * update_context_requests, update_context_delay_max_us);
         update_context_time_us = get_monotonic_time () + delay_us;
-        // debug (@"Context(s) update (re-)scheduled in $((int) (delay_us / 1000)) ms");
+        debug ("[SEMTOK] request_context_update: requests=%d, delay=%dms",
+               (int) update_context_requests, (int) (delay_us / 1000));
     }
 
     /** 
@@ -709,7 +744,7 @@ class Vls.Server : Jsonrpc.Server {
      */
     bool check_update_context () {
         if (update_context_requests > 0 && get_monotonic_time () >= update_context_time_us) {
-            debug ("updating contexts and publishing diagnostics...");
+            debug ("[SEMTOK] check_update_context: starting rebuild (requests=%d)", (int) update_context_requests);
             update_context_requests = 0;
             update_context_time_us = 0;
 
@@ -720,6 +755,7 @@ class Vls.Server : Jsonrpc.Server {
                 try {
                     bool reconfigured = project.reconfigure_if_stale (cancellable);
                     reconfigured_projects |= reconfigured;
+                    debug ("[SEMTOK] check_update_context: build_if_stale for project");
                     project.build_if_stale (cancellable);
 
                     // remove all newly-added files from the default project
@@ -810,6 +846,8 @@ class Vls.Server : Jsonrpc.Server {
      * the right conditions to call `on_context_updated_func ()`.
      */
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func) {
+        debug ("[SEMTOK] wait_for_context_update: requests=%d, pending=%d",
+               (int) update_context_requests, pending_requests.size);
         // we've already updated the context
         if (update_context_requests == 0)
             on_context_updated_func (false);
@@ -1254,6 +1292,33 @@ int main (string[] args) {
     }
 
     // otherwise
+
+    // Enable all debug output regardless of environment
+    Environment.set_variable ("G_MESSAGES_DEBUG", "all", false);
+
+    // Duplicate log output to .tmp/vls-<PID>.log
+    var log_dir = File.new_for_path (".tmp");
+    try {
+        if (!log_dir.query_exists ())
+            log_dir.make_directory ();
+    } catch (Error e) {
+        stderr.printf ("warning: could not create .tmp directory: %s\n", e.message);
+    }
+    string log_path = ".tmp/vls-%d.log".printf (Posix.getpid ());
+    FileStream? log_file = FileStream.open (log_path, "a");
+    if (log_file != null) {
+        log_file.printf ("=== VLS started at %s ===\n", new DateTime.now ().to_string ());
+        Log.set_default_handler ((domain, levels, message) => {
+            var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S");
+            string level_name = ((uint) levels).to_string ();
+            var formatted = "%s [%s] %s%s\n".printf (timestamp, level_name,
+                                                      domain != null ? domain + ": " : "", message);
+            stderr.printf ("%s", formatted);
+            log_file.printf ("%s", formatted);
+            log_file.flush ();
+        });
+    }
+
     var loop = new MainLoop ();
     new Vls.Server (loop);
     loop.run ();
