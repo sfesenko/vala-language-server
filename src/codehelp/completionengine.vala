@@ -20,6 +20,19 @@ using Lsp;
 using Gee;
 
 namespace Vls.CompletionEngine {
+    /**
+     * Extract the text from the start of the current line to the cursor position.
+     */
+    string extract_line_prefix (Vala.SourceFile doc, Position pos) {
+        long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+        long line_start = idx - pos.character;
+        var prefix = new StringBuilder ();
+        for (long i = line_start; i < idx; i++) {
+            prefix.append_c (doc.content[i]);
+        }
+        return prefix.str;
+    }
+
     void begin_response (Server lang_serv, Project project,
                          Jsonrpc.Client client, Variant id, string method,
                          Vala.SourceFile doc, Compilation compilation,
@@ -93,6 +106,8 @@ namespace Vls.CompletionEngine {
             // TODO: incomplete completions
         }
 
+        string prefix = extract_line_prefix (doc, pos);
+
         Vala.CodeContext.push (compilation.code_context);
         if (is_member_access) {
             // attempt SymbolExtractor first, and if that fails, then wait for
@@ -140,14 +155,14 @@ namespace Vls.CompletionEngine {
             if (nearest_symbol is Vala.Class) {
                 var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols ((Vala.Class) nearest_symbol);
                 // TODO: use missing prereqs (results.first)
-                list_implementable_symbols (lang_serv, project, compilation, doc, (Vala.Class) nearest_symbol, best_scope, results.second, completions);
+                list_implementable_symbols (lang_serv, project, compilation, doc, (Vala.Class) nearest_symbol, best_scope, results.second, completions, prefix);
                 showing_override_suggestions = !completions.is_empty;
             }
             if (nearest_symbol is Vala.ObjectTypeSymbol) {
                 list_implementable_symbols (lang_serv, project, compilation, doc,
                                             (Vala.ObjectTypeSymbol) nearest_symbol, best_scope,
                                             CodeHelp.gather_base_virtual_symbols_not_overridden ((Vala.ObjectTypeSymbol) nearest_symbol),
-                                            completions);
+                                            completions, prefix);
             }
             if (!showing_override_suggestions) {
                 list_symbols (lang_serv, project, compilation, doc, pos, best_scope, completions, (new SymbolExtractor (pos, doc)).in_oce);
@@ -424,7 +439,7 @@ namespace Vls.CompletionEngine {
     void list_implementable_symbols (Server lang_serv, Project project, Compilation compilation,
                                      Vala.SourceFile doc, Vala.TypeSymbol type_symbol, Vala.Scope scope,
                                      Vala.List<Pair<Vala.DataType?, Vala.Symbol>> missing_symbols,
-                                     Set<CompletionItem> completions) {
+                                     Set<CompletionItem> completions, string prefix = "") {
         var code_style = compilation.get_analysis_for_file<CodeStyleAnalyzer> (doc);
         string spaces = " ";
 
@@ -481,9 +496,6 @@ namespace Vls.CompletionEngine {
 
             label.append (sym.name);
             insert_text.append (sym.name);
-
-            // TODO: use prefix to avoid inserting part of the method signature
-            // that has already been typed
 
             if (sym is Vala.Callable) {
                 // display type arguments
@@ -554,9 +566,17 @@ namespace Vls.CompletionEngine {
             }
 
             insert_text.append ("$0");
+
+            // Use prefix to avoid inserting part of the method signature
+            // that has already been typed
+            string final_insert_text = insert_text.str;
+            if (prefix.length > 0 && final_insert_text.has_prefix (prefix)) {
+                final_insert_text = final_insert_text.substring (prefix.length);
+            }
+
             completions.add (
                 new CompletionItem.from_unimplemented_symbol (
-                    sym, label.str, kind, insert_text.str, 
+                    sym, label.str, kind, final_insert_text, 
                     lang_serv.get_symbol_documentation (project, sym)
                 ));
         }
