@@ -8,7 +8,7 @@ project('vala-language-server', 'vala', 'c',
 )
 
 valac = meson.get_compiler('vala')
-libvala_version = run_command(valac, '--api-version').stdout().strip()
+libvala_version = run_command(valac, '--api-version', check: false).stdout().strip()
 if not libvala_version.version_compare('>=0.48' )
   error('libvala needs to be 0.48 or above')
 endif
