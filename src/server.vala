@@ -590,7 +590,7 @@ class Vls.Server : Jsonrpc.Server {
             debug (@"[textDocument/didOpen] opened $(Uri.unescape_string (uri))"); 
             tdoc.last_saved_content = fileContents;
             bool content_changed = tdoc.content != fileContents;
-            debug ("[SEMTOK] didOpen: uri=%s, content_len=%lu, content_changed=%s",
+            debug ("[SEMTOK] didOpen: uri=%s, content_len=%d, content_changed=%s",
                    Uri.unescape_string (uri), fileContents.length, content_changed.to_string ());
             if (content_changed) {
                 tdoc.content = fileContents;
@@ -1267,10 +1267,21 @@ class Vls.Server : Jsonrpc.Server {
  */
 FileStream? vls_log_file = null;
 
+private static string log_level_name (LogLevelFlags levels) {
+    switch ((uint) levels & ~0x3u) {
+        case 4:    return "ERROR";
+        case 8:    return "CRITICAL";
+        case 16:   return "WARNING";
+        case 32:   return "MESSAGE";
+        case 64:   return "INFO";
+        case 128:  return "DEBUG";
+        default:   return ((uint) levels).to_string ();
+    }
+}
+
 void vls_log_handler (string? domain, LogLevelFlags levels, string message) {
     var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S");
-    string level_name = ((uint) levels).to_string ();
-    var formatted = "%s [%s] %s%s\n".printf (timestamp, level_name,
+    var formatted = "%s [%s] %s%s\n".printf (timestamp, log_level_name (levels),
                                               domain != null ? domain + ": " : "", message);
     stderr.printf ("%s", formatted);
     if (vls_log_file != null) {
@@ -1278,6 +1289,8 @@ void vls_log_handler (string? domain, LogLevelFlags levels, string message) {
         vls_log_file.flush ();
     }
 }
+
+
 
 /**
  * `--version`
@@ -1323,8 +1336,11 @@ int main (string[] args) {
         vls_log_file = FileStream.open (log_path, "a");
         if (vls_log_file != null) {
             vls_log_file.printf ("=== VLS started at %s ===\n", new DateTime.now ().to_string ());
-            Log.set_default_handler (vls_log_handler);
+            // Suppress GLib's setenv thread-safety warning during startup
+            uint glib_warn_id = Log.set_handler ("GLib", LogLevelFlags.LEVEL_WARNING, (d, l, m) => {});
             Environment.set_variable ("G_MESSAGES_DEBUG", "all", false);
+            Log.remove_handler ("GLib", glib_warn_id);
+            Log.set_default_handler (vls_log_handler);
         }
     }
 

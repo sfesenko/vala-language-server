@@ -77,6 +77,7 @@ const string SEMANTIC_TOKENS_FIXTURE = """namespace Ns {
     public class Foo<T> : Base {
         public Foo () {}
         ~Foo () {}
+        public HashMap<string, uint> generic_map { get; set; }
         public void m_pub () {}
         private void m_pri () {}
         protected void m_pro () {}
@@ -109,6 +110,21 @@ const string SEMANTIC_TOKENS_FIXTURE = """namespace Ns {
             var x = obj;
             var copy = x;
             obj["key"] = "val";
+        }
+        public void test_generics (HashMap<string, uint> generic_map) {
+            unowned string us = "hello";
+            owned string os = us;
+            var chained = this
+                .test_generics (generic_map);
+            generic_map[null] = 0;
+        }
+        public void test_simple_names () {
+            int counter = 0;
+            counter = counter;
+            counter++;
+        }
+        public HashMap<string, uint> test_generic_ret () {
+            return this.generic_map;
         }
     }
     public struct MyStruct {
@@ -622,215 +638,265 @@ void test_semantic_tokens_coverage () {
     // === Line 7: ~Foo () {} ===
     assert (has_token_on_line (tokens, 7, METHOD));    // "~Foo" (destructor)
 
-    // === Line 8: public void m_pub () {} ===
-    assert (has_token (tokens, 8, KEYWORD, 6));        // "public"
-    assert (has_token (tokens, 8, TYPE, 4));           // "void"
-    assert (has_token (tokens, 8, METHOD, 5));         // "m_pub"
-
-    // === Line 9: private void m_pri () {} ===
-    assert (has_token (tokens, 9, KEYWORD, 7));        // "private"
+    // === Line 9: public void m_pub () {} ===
+    assert (has_token (tokens, 9, KEYWORD, 6));        // "public"
     assert (has_token (tokens, 9, TYPE, 4));           // "void"
-    assert (has_token (tokens, 9, METHOD, 5));         // "m_pri"
+    assert (has_token (tokens, 9, METHOD, 5));         // "m_pub"
 
-    // === Line 10: protected void m_pro () {} ===
-    assert (has_token (tokens, 10, KEYWORD, 9));       // "protected"
+    // === Line 10: private void m_pri () {} ===
+    assert (has_token (tokens, 10, KEYWORD, 7));       // "private"
     assert (has_token (tokens, 10, TYPE, 4));          // "void"
-    assert (has_token (tokens, 10, METHOD, 5));        // "m_pro"
+    assert (has_token (tokens, 10, METHOD, 5));        // "m_pri"
 
-    // === Line 11: internal void m_int () {} ===
-    assert (has_token (tokens, 11, KEYWORD, 8));       // "internal"
+    // === Line 11: protected void m_pro () {} ===
+    assert (has_token (tokens, 11, KEYWORD, 9));       // "protected"
     assert (has_token (tokens, 11, TYPE, 4));          // "void"
-    assert (has_token (tokens, 11, METHOD, 5));        // "m_int"
+    assert (has_token (tokens, 11, METHOD, 5));        // "m_pro"
 
-    // === Line 12: public static void m_stat () {} ===
-    assert (has_token (tokens, 12, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 12, KEYWORD, 6));       // "static"
+    // === Line 12: internal void m_int () {} ===
+    assert (has_token (tokens, 12, KEYWORD, 8));       // "internal"
     assert (has_token (tokens, 12, TYPE, 4));          // "void"
-    assert (has_token (tokens, 12, METHOD, 6));        // "m_stat"
+    assert (has_token (tokens, 12, METHOD, 5));        // "m_int"
 
-    // === Line 13: public override void abs_method () {} ===
+    // === Line 13: public static void m_stat () {} ===
     assert (has_token (tokens, 13, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 13, KEYWORD, 8));       // "override"
+    assert (has_token (tokens, 13, KEYWORD, 6));       // "static"
     assert (has_token (tokens, 13, TYPE, 4));          // "void"
-    assert (has_token (tokens, 13, METHOD, 10));       // "abs_method"
+    assert (has_token (tokens, 13, METHOD, 6));        // "m_stat"
 
-    // === Line 14: public override void vir_method () {} ===
+    // === Line 14: public override void abs_method () {} ===
     assert (has_token (tokens, 14, KEYWORD, 6));       // "public"
     assert (has_token (tokens, 14, KEYWORD, 8));       // "override"
     assert (has_token (tokens, 14, TYPE, 4));          // "void"
-    assert (has_token (tokens, 14, METHOD, 10));       // "vir_method"
+    assert (has_token (tokens, 14, METHOD, 10));       // "abs_method"
 
-    // === Line 15: public async void m_async () {} ===
+    // === Line 15: public override void vir_method () {} ===
     assert (has_token (tokens, 15, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 15, KEYWORD, 5));       // "async"
+    assert (has_token (tokens, 15, KEYWORD, 8));       // "override"
     assert (has_token (tokens, 15, TYPE, 4));          // "void"
-    assert (has_token (tokens, 15, FUNCTION, 7));      // "m_async"
+    assert (has_token (tokens, 15, METHOD, 10));       // "vir_method"
 
-    // === Line 16: public int prop { get; set; } ===
+    // === Line 16: public async void m_async () {} ===
     assert (has_token (tokens, 16, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 16, TYPE, 3));          // "int"
-    assert (has_token (tokens, 16, PROPERTY, 4));      // "prop"
+    assert (has_token (tokens, 16, KEYWORD, 5));       // "async"
+    assert (has_token (tokens, 16, TYPE, 4));          // "void"
+    assert (has_token (tokens, 16, FUNCTION, 7));      // "m_async"
 
-    // === Line 17: public static int sprop { get; set; } ===
+    // === Line 17: public int prop { get; set; } ===
     assert (has_token (tokens, 17, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 17, KEYWORD, 6));       // "static"
     assert (has_token (tokens, 17, TYPE, 3));          // "int"
-    assert (has_token (tokens, 17, PROPERTY, 5));      // "sprop"
+    assert (has_token (tokens, 17, PROPERTY, 4));      // "prop"
 
-    // === Line 18: public virtual int vprop { get; set; } ===
+    // === Line 18: public static int sprop { get; set; } ===
     assert (has_token (tokens, 18, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 18, KEYWORD, 7));       // "virtual"
+    assert (has_token (tokens, 18, KEYWORD, 6));       // "static"
     assert (has_token (tokens, 18, TYPE, 3));          // "int"
-    assert (has_token (tokens, 18, PROPERTY, 5));      // "vprop"
+    assert (has_token (tokens, 18, PROPERTY, 5));      // "sprop"
 
-    // === Line 19: public override int ovprop { get; set; } ===
+    // === Line 19: public virtual int vprop { get; set; } ===
     assert (has_token (tokens, 19, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 19, KEYWORD, 8));       // "override"
+    assert (has_token (tokens, 19, KEYWORD, 7));       // "virtual"
     assert (has_token (tokens, 19, TYPE, 3));          // "int"
-    assert (has_token (tokens, 19, PROPERTY, 6));      // "ovprop"
+    assert (has_token (tokens, 19, PROPERTY, 5));      // "vprop"
 
-    // === Line 20: public int field; ===
+    // === Line 20: public override int ovprop { get; set; } ===
     assert (has_token (tokens, 20, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 20, KEYWORD, 8));       // "override"
     assert (has_token (tokens, 20, TYPE, 3));          // "int"
-    assert (has_token (tokens, 20, PROPERTY, 5));      // "field"
+    assert (has_token (tokens, 20, PROPERTY, 6));      // "ovprop"
 
-    // === Line 21: public static int sfield; ===
+    // === Line 21: public int field; ===
     assert (has_token (tokens, 21, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 21, KEYWORD, 6));       // "static"
     assert (has_token (tokens, 21, TYPE, 3));          // "int"
-    assert (has_token (tokens, 21, PROPERTY, 6));      // "sfield"
+    assert (has_token (tokens, 21, PROPERTY, 5));      // "field"
 
-    // === Line 22: public signal void sig1 (); ===
+    // === Line 22: public static int sfield; ===
     assert (has_token (tokens, 22, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 22, KEYWORD, 6));       // "signal"
-    assert (has_token (tokens, 22, TYPE, 4));          // "void"
-    assert (has_token (tokens, 22, EVENT, 4));         // "sig1"
+    assert (has_token (tokens, 22, KEYWORD, 6));       // "static"
+    assert (has_token (tokens, 22, TYPE, 3));          // "int"
+    assert (has_token (tokens, 22, PROPERTY, 6));      // "sfield"
 
-    // === Line 23: public delegate void MyDel (); ===
+    // === Line 23: public signal void sig1 (); ===
     assert (has_token (tokens, 23, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 23, KEYWORD, 8));       // "delegate"
+    assert (has_token (tokens, 23, KEYWORD, 6));       // "signal"
     assert (has_token (tokens, 23, TYPE, 4));          // "void"
-    assert (has_token (tokens, 23, FUNCTION, 5));      // "MyDel"
+    assert (has_token (tokens, 23, EVENT, 4));         // "sig1"
 
-    // === Line 24: public const int ANSWER = 42; ===
+    // === Line 24: public delegate void MyDel (); ===
     assert (has_token (tokens, 24, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 24, KEYWORD, 5));       // "const"
-    assert (has_token (tokens, 24, TYPE, 3));          // "int"
-    assert (has_token (tokens, 24, VARIABLE, 6));      // "ANSWER"
-    assert (has_token (tokens, 24, NUMBER, 2));        // "42"
+    assert (has_token (tokens, 24, KEYWORD, 8));       // "delegate"
+    assert (has_token (tokens, 24, TYPE, 4));          // "void"
+    assert (has_token (tokens, 24, FUNCTION, 5));      // "MyDel"
 
-    // === Line 25: public const string NAME = "test"; ===
+    // === Line 25: public const int ANSWER = 42; ===
     assert (has_token (tokens, 25, KEYWORD, 6));       // "public"
     assert (has_token (tokens, 25, KEYWORD, 5));       // "const"
-    assert (has_token (tokens, 25, TYPE, 6));          // "string"
-    assert (has_token (tokens, 25, VARIABLE, 4));      // "NAME"
-    assert (has_token (tokens, 25, STRING, 6));        // "\"test\""
+    assert (has_token (tokens, 25, TYPE, 3));          // "int"
+    assert (has_token (tokens, 25, VARIABLE, 6));      // "ANSWER"
+    assert (has_token (tokens, 25, NUMBER, 2));        // "42"
 
-    // === Line 26: public T? this[string key] { get; set; } ===
+    // === Line 26: public const string NAME = "test"; ===
+    assert (has_token (tokens, 26, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 26, KEYWORD, 5));       // "const"
+    assert (has_token (tokens, 26, TYPE, 6));          // "string"
+    assert (has_token (tokens, 26, VARIABLE, 4));      // "NAME"
+    assert (has_token (tokens, 26, STRING, 6));        // "\"test\""
+
+    // === Line 27: public T? this[string key] { get; set; } ===
     // NOTE: indexer properties may not emit tokens depending on libvala behavior
 
-    // === Line 27: public void do_stuff (string s, int x) { ===
-    assert (has_token (tokens, 27, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 27, TYPE, 4));          // "void"
-    assert (has_token (tokens, 27, METHOD, 8));        // "do_stuff"
-    assert (has_token (tokens, 27, TYPE, 6));          // "string" (param type)
-    assert (has_token (tokens, 27, PARAMETER, 1));     // "s"
-    assert (has_token (tokens, 27, TYPE, 3));          // "int" (param type)
-    assert (has_token (tokens, 27, PARAMETER, 1));     // "x"
+    // === Line 28: public void do_stuff (string s, int x) { ===
+    assert (has_token (tokens, 28, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 28, TYPE, 4));          // "void"
+    assert (has_token (tokens, 28, METHOD, 8));        // "do_stuff"
+    assert (has_token (tokens, 28, TYPE, 6));          // "string" (param type)
+    assert (has_token (tokens, 28, PARAMETER, 1));     // "s"
+    assert (has_token (tokens, 28, TYPE, 3));          // "int" (param type)
+    assert (has_token (tokens, 28, PARAMETER, 1));     // "x"
 
-    // === Line 28: int local = 42; ===
-    assert (has_token (tokens, 28, TYPE, 3));          // "int"
-    assert (has_token (tokens, 28, VARIABLE, 5));      // "local"
-    assert (has_token (tokens, 28, NUMBER, 2));        // "42"
+    // === Line 29: int local = 42; ===
+    assert (has_token (tokens, 29, TYPE, 3));          // "int"
+    assert (has_token (tokens, 29, VARIABLE, 5));      // "local"
+    assert (has_token (tokens, 29, NUMBER, 2));        // "42"
 
-    // === Line 29: string str = "hello"; ===
-    assert (has_token (tokens, 29, TYPE, 6));          // "string"
-    assert (has_token (tokens, 29, VARIABLE, 3));      // "str"
-    assert (has_token (tokens, 29, STRING, 7));        // "\"hello\""
+    // === Line 30: string str = "hello"; ===
+    assert (has_token (tokens, 30, TYPE, 6));          // "string"
+    assert (has_token (tokens, 30, VARIABLE, 3));      // "str"
+    assert (has_token (tokens, 30, STRING, 7));        // "\"hello\""
 
-    // === Line 30: bool flag = true; ===
-    assert (has_token (tokens, 30, TYPE, 4));          // "bool"
-    assert (has_token (tokens, 30, VARIABLE, 4));      // "flag"
-    assert (has_token (tokens, 30, NUMBER, 4));        // "true"
+    // === Line 31: bool flag = true; ===
+    assert (has_token (tokens, 31, TYPE, 4));          // "bool"
+    assert (has_token (tokens, 31, VARIABLE, 4));      // "flag"
+    assert (has_token (tokens, 31, NUMBER, 4));        // "true"
 
-    // === Line 31: double pi = 3.14; ===
-    assert (has_token (tokens, 31, TYPE, 6));          // "double"
-    assert (has_token (tokens, 31, VARIABLE, 2));      // "pi"
-    assert (has_token (tokens, 31, NUMBER, 4));        // "3.14"
+    // === Line 32: double pi = 3.14; ===
+    assert (has_token (tokens, 32, TYPE, 6));          // "double"
+    assert (has_token (tokens, 32, VARIABLE, 2));      // "pi"
+    assert (has_token (tokens, 32, NUMBER, 4));        // "3.14"
 
-    // === Line 32: var obj = new Foo<int> (); ===
-    assert (has_token (tokens, 32, VARIABLE, 3));      // "obj"
-    assert (has_token (tokens, 32, CLASS, 8));         // "Foo<int>"
+    // === Line 33: var obj = new Foo<int> (); ===
+    assert (has_token (tokens, 33, VARIABLE, 3));      // "obj"
+    assert (has_token (tokens, 33, CLASS, 8));         // "Foo<int>"
 
-    // === Line 33: obj.m_pub (); ===
-    assert (has_token (tokens, 33, VARIABLE, 3));      // "obj" (reference)
-    assert (has_token (tokens, 33, METHOD, 5));        // "m_pub" (member name only)
-
-    // === Line 34: obj.prop = 1; ===
+    // === Line 34: obj.m_pub (); ===
     assert (has_token (tokens, 34, VARIABLE, 3));      // "obj" (reference)
-    assert (has_token (tokens, 34, PROPERTY, 4));      // "prop" (member name only)
-    assert (has_token (tokens, 34, NUMBER, 1));        // "1"
+    assert (has_token (tokens, 34, METHOD, 5));        // "m_pub" (member name only)
 
-    // === Line 35: var f = obj.field; ===
-    assert (has_token (tokens, 35, VARIABLE, 1));      // "f"
+    // === Line 35: obj.prop = 1; ===
     assert (has_token (tokens, 35, VARIABLE, 3));      // "obj" (reference)
-    assert (has_token (tokens, 35, PROPERTY, 5));      // "field" (member name only)
+    assert (has_token (tokens, 35, PROPERTY, 4));      // "prop" (member name only)
+    assert (has_token (tokens, 35, NUMBER, 1));        // "1"
 
-    // === Line 36: var a = obj is Base; ===
-    assert (has_token (tokens, 36, VARIABLE, 1));      // "a"
-    assert (has_token (tokens, 36, TYPE, 4));          // "Base"
+    // === Line 36: var f = obj.field; ===
+    assert (has_token (tokens, 36, VARIABLE, 1));      // "f"
+    assert (has_token (tokens, 36, VARIABLE, 3));      // "obj" (reference)
+    assert (has_token (tokens, 36, PROPERTY, 5));      // "field" (member name only)
 
-    // === Line 37: var x = obj; ===
-    assert (has_token (tokens, 37, VARIABLE, 1));      // "x" (declaration)
-    assert (has_token (tokens, 37, VARIABLE, 3));      // "obj" (reference)
+    // === Line 37: var a = obj is Base; ===
+    assert (has_token (tokens, 37, VARIABLE, 1));      // "a"
+    assert (has_token (tokens, 37, TYPE, 4));          // "Base"
 
-    // === Line 38: var copy = x; ===
-    assert (has_token (tokens, 38, VARIABLE, 4));      // "copy" (declaration)
-    assert (has_token (tokens, 38, VARIABLE, 1));      // "x" (reference)
+    // === Line 38: var x = obj; ===
+    assert (has_token (tokens, 38, VARIABLE, 1));      // "x" (declaration)
+    assert (has_token (tokens, 38, VARIABLE, 3));      // "obj" (reference)
 
-    // === Line 39: obj["key"] = "val"; ===
-    assert (has_token (tokens, 39, VARIABLE, 3));      // "obj" (reference)
-    assert (has_token (tokens, 39, STRING, 5));        // "\"key\""
-    assert (has_token (tokens, 39, STRING, 5));        // "\"val\""
+    // === Line 39: var copy = x; ===
+    assert (has_token (tokens, 39, VARIABLE, 4));      // "copy" (declaration)
+    assert (has_token (tokens, 39, VARIABLE, 1));      // "x" (reference)
 
-    // === Line 42: public struct MyStruct { ===
+    // === Line 40: obj["key"] = "val"; ===
+    assert (has_token (tokens, 40, VARIABLE, 3));      // "obj" (reference)
+    assert (has_token (tokens, 40, STRING, 5));        // "\"key\""
+    assert (has_token (tokens, 40, STRING, 5));        // "\"val\""
+
+    // === Line 42: test_generics signature ===
     assert (has_token (tokens, 42, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 42, KEYWORD, 6));       // "struct"
-    assert (has_token (tokens, 42, STRUCT, 8));        // "MyStruct"
+    assert (has_token (tokens, 42, TYPE, 4));           // "void"
+    assert (has_token_on_line (tokens, 42, METHOD));    // "test_generics"
+    assert (has_token_on_line (tokens, 42, TYPE));      // "HashMap<string, uint>" (generic param)
 
-    // === Line 43: public int x; ===
-    assert (has_token (tokens, 43, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 43, TYPE, 3));          // "int"
-    assert (has_token (tokens, 43, PROPERTY, 1));      // "x"
+    // === Line 43: unowned string us = "hello"; ===
+    // "unowned" keyword emitted by leading keyword tokens
+    assert (has_token (tokens, 43, VARIABLE, 2));      // "us"
+    assert (has_token (tokens, 43, STRING, 7));        // "\"hello\""
 
-    // === Line 44: public void method () {} ===
-    assert (has_token (tokens, 44, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 44, TYPE, 4));          // "void"
-    assert (has_token (tokens, 44, METHOD, 6));        // "method"
+    // === Line 44: owned string os = us; ===
+    // "owned" emitted by leading keyword tokens, "string" as TYPE
+    assert (has_token (tokens, 44, VARIABLE, 2));      // "os"
+    assert (has_token_on_line (tokens, 44, VARIABLE));  // "us" (simple name reference)
 
-    // === Line 46: public enum MyEnum { ===
-    assert (has_token (tokens, 46, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 46, KEYWORD, 4));       // "enum"
-    assert (has_token (tokens, 46, ENUM, 6));          // "MyEnum"
+    // === Line 45: var chained = this ===
+    assert (has_token (tokens, 45, VARIABLE, 7));      // "chained" (declaration)
 
-    // === Line 47: VAL_A, ===
-    assert (has_token (tokens, 47, ENUM_MEMBER, 5));   // "VAL_A"
+    // === Line 46: .test_generics (generic_map); ===
+    assert (has_token (tokens, 46, METHOD, 13));       // "test_generics" (multi-line chain via sr.end)
 
-    // === Line 48: VAL_B ===
-    assert (has_token (tokens, 48, ENUM_MEMBER, 5));   // "VAL_B"
+    // === Line 47: generic_map[null] = 0; ===
+    assert (has_token_on_line (tokens, 47, PARAMETER));  // "generic_map" (param ref)
+    assert (has_token (tokens, 47, NUMBER, 1));        // "0"
 
-    // === Line 50: public interface MyInterface { ===
-    assert (has_token (tokens, 50, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 50, KEYWORD, 9));       // "interface"
-    assert (has_token (tokens, 50, INTERFACE, 11));    // "MyInterface"
+    // === Line 49: test_simple_names signature ===
+    assert (has_token (tokens, 49, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 49, TYPE, 4));           // "void"
+    assert (has_token_on_line (tokens, 49, METHOD));    // "test_simple_names"
 
-    // === Line 51: public abstract void do_it (); ===
-    assert (has_token (tokens, 51, KEYWORD, 6));       // "public"
-    assert (has_token (tokens, 51, KEYWORD, 8));       // "abstract"
-    assert (has_token (tokens, 51, TYPE, 4));          // "void"
-    assert (has_token (tokens, 51, METHOD, 5));        // "do_it"
+    // === Line 50: int counter = 0; ===
+    assert (has_token (tokens, 50, TYPE, 3));          // "int"
+    assert (has_token_on_line (tokens, 50, VARIABLE));  // "counter" (declaration)
+    assert (has_token (tokens, 50, NUMBER, 1));        // "0"
 
-    // === Line 54: public error_domain MyError { ===
+    // === Line 51: counter = counter; ===
+    assert (has_token_on_line (tokens, 51, VARIABLE));  // "counter" (simple name ref)
+    assert (has_token_on_line (tokens, 51, VARIABLE));  // "counter" (simple name ref)
+
+    // === Line 52: counter++; ===
+    // NOTE: postfix increment may not emit tokens depending on AST structure
+
+    // === Line 54: test_generic_ret signature ===
+    assert (has_token (tokens, 54, KEYWORD, 6));       // "public"
+    assert (has_token_on_line (tokens, 54, METHOD));    // "test_generic_ret"
+
+    // === Line 55: return this.generic_map; ===
+    assert (has_token_on_line (tokens, 55, PROPERTY));  // "generic_map" (qualified access)
+
+    // === Line 58: public struct MyStruct { ===
+    assert (has_token (tokens, 58, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 58, KEYWORD, 6));       // "struct"
+    assert (has_token (tokens, 58, STRUCT, 8));        // "MyStruct"
+
+    // === Line 59: public int x; ===
+    assert (has_token (tokens, 59, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 59, TYPE, 3));          // "int"
+    assert (has_token (tokens, 59, PROPERTY, 1));      // "x"
+
+    // === Line 60: public void method () {} ===
+    assert (has_token (tokens, 60, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 60, TYPE, 4));          // "void"
+    assert (has_token (tokens, 60, METHOD, 6));        // "method"
+
+    // === Line 62: public enum MyEnum { ===
+    assert (has_token (tokens, 62, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 62, KEYWORD, 4));       // "enum"
+    assert (has_token (tokens, 62, ENUM, 6));          // "MyEnum"
+
+    // === Line 63: VAL_A, ===
+    assert (has_token (tokens, 63, ENUM_MEMBER, 5));   // "VAL_A"
+
+    // === Line 64: VAL_B ===
+    assert (has_token (tokens, 64, ENUM_MEMBER, 5));   // "VAL_B"
+
+    // === Line 66: public interface MyInterface { ===
+    assert (has_token (tokens, 66, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 66, KEYWORD, 9));       // "interface"
+    assert (has_token (tokens, 66, INTERFACE, 11));    // "MyInterface"
+
+    // === Line 67: public abstract void do_it (); ===
+    assert (has_token (tokens, 67, KEYWORD, 6));       // "public"
+    assert (has_token (tokens, 67, KEYWORD, 8));       // "abstract"
+    assert (has_token (tokens, 67, TYPE, 4));          // "void"
+    assert (has_token (tokens, 67, METHOD, 5));        // "do_it"
+
+    // === Line 70: public error_domain MyError { ===
     // NOTE: error_domain outside namespace has no tokens in current analyzer
     // (source_reference may not match due to libvala parsing quirks)
 

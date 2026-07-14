@@ -90,7 +90,7 @@ namespace Vls {
 
         public SemanticTokensAnalyzer (Vala.SourceFile file) {
             this.file = file;
-            debug ("[SEMTOK] analyzer created, file=%s, content_len=%lu",
+            debug ("[SEMTOK] analyzer created, file=%s, content_len=%d",
                    file.filename, file.content != null ? file.content.length : 0);
             this.visit_source_file (file);
         }
@@ -100,6 +100,11 @@ namespace Vls {
         }
 
         private bool try_emit_token (uint line, uint character, uint length, uint token_type, uint modifiers) {
+            // Skip if any existing token covers the exact same position (prevents
+            // undefined behavior from overlapping tokens in LSP clients).
+            foreach (var t in tokens)
+                if (t.line == line && t.character == character && t.length == length)
+                    return false;
             string key = @"$line:$character:$length:$token_type:$modifiers";
             if (emitted_tokens.contains (key))
                 return false;
@@ -156,6 +161,8 @@ namespace Vls {
         }
 
         private void add_name_token (Vala.CodeNode node, string name, uint token_type, uint modifiers = 0) {
+            if (name == null)
+                return;
             var sr = node.source_reference;
             if (sr == null || sr.file != file)
                 return;
@@ -164,7 +171,7 @@ namespace Vls {
                 var fresh = ((TextDocument) sr.file).last_fresh_content;
                 if (content != fresh)
                     debug ("[SEMTOK] add_name_token: content differs from last_fresh_content (" +
-                           "sr: line=%d,col=%d, name=%s, content_len=%lu, fresh_len=%lu)",
+                           "sr: line=%d,col=%d, name=%s, content_len=%d, fresh_len=%d)",
                            sr.begin.line, sr.begin.column, name,
                            content != null ? content.length : 0,
                            fresh != null ? fresh.length : 0);
@@ -174,7 +181,8 @@ namespace Vls {
             string text = content[from:to];
             int name_start = find_name_in_text (text, name);
             if (name_start < 0) {
-                add_token (sr, token_type, modifiers);
+                debug ("[SEMTOK] add_name_token: name '%s' not found in text for node=%s",
+                       name, node.type_name);
                 return;
             }
             uint line = (uint) (sr.begin.line - 1);
@@ -184,7 +192,6 @@ namespace Vls {
             if (character + length > max_len) {
                 debug ("[SEMTOK] add_name_token bounds fail: line=%u, char=%u, len=%u > max=%u, type=%u, node=%s",
                        line, character, length, max_len, token_type, node.type_name);
-                add_token (sr, token_type, modifiers);
                 return;
             }
             try_emit_token (line, character, length, token_type, modifiers);
@@ -212,6 +219,8 @@ namespace Vls {
                 }
             }
             add_token (sr, SemanticTokenType.TYPE);
+            foreach (var arg in type.get_type_arguments ())
+                add_type_token (arg);
         }
 
         private uint compute_method_modifiers (Vala.Method method) {
@@ -281,7 +290,6 @@ namespace Vls {
                 case "interface":
                 case "signal":
                 case "delegate":
-                case "var":
                 case "yield":
                 case "foreach":
                 case "in":
@@ -308,7 +316,6 @@ namespace Vls {
                 case "owned":
                 case "unowned":
                 case "weak":
-                case "void":
                     return true;
                 default:
                     return false;
@@ -579,13 +586,23 @@ namespace Vls {
             string? member_name = expr.member_name;
             if (member_name != null) {
                 // Qualified access (obj.method): emit token for member name only
-                var sym = expr.symbol_reference;
-                uint tok_type = sym_token_type (sym);
-                if (tok_type < 255) {
-                    uint mods = 0;
-                    if (sym is Vala.Constant)
-                        mods = 1u << SemanticTokenModifier.READONLY;
-                    add_name_token (expr, member_name, tok_type, mods);
+                // Use sr.end to find the member name position, since sr.begin may
+                // point to a different line (multi-line chains like obj\n  .method).
+                var sr = expr.source_reference;
+                if (sr != null && sr.file == file) {
+                    var sym = expr.symbol_reference;
+                    uint tok_type = sym_token_type (sym);
+                    if (tok_type < 255) {
+                        uint mods = 0;
+                        if (sym is Vala.Constant)
+                            mods = 1u << SemanticTokenModifier.READONLY;
+                        uint line = (uint) sr.end.line - 1;
+                        uint character = (uint) sr.end.column - (uint) member_name.length;
+                        uint length = (uint) member_name.length;
+                        uint max_len = line_byte_length (sr.file.content, line);
+                        if (character + length <= max_len)
+                            try_emit_token (line, character, length, tok_type, mods);
+                    }
                 }
             } else {
                 // Standalone reference (no dot): emit token for full expression
