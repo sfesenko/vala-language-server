@@ -53,6 +53,7 @@ conf = configuration_data()
 conf.set('LIBVALA_VERSION', libvala.version())
 conf.set('PROJECT_BUGSITE', 'https://github.com/vala-lang/vala-language-server/issues')
 conf.set('PROJECT_NAME', meson.project_name())
+conf.set('DEBUG_LOGGING', get_option('debug_logging'))
 
 conf_file = configure_file(input: 'config.vala.in',
                            output: 'config.vala',

@@ -2,4 +2,5 @@ namespace Config {
     const string LIBVALA_VERSION = "@LIBVALA_VERSION@";
     const string PROJECT_BUGSITE = "@PROJECT_BUGSITE@";
     const string PROJECT_NAME = "@PROJECT_NAME@";
+    const string DEBUG_LOGGING = "@DEBUG_LOGGING@";
 }

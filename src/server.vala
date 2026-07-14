@@ -1263,6 +1263,23 @@ class Vls.Server : Jsonrpc.Server {
 }
 
 /**
+ * Debug logging support (static globals, configured via meson -Ddebug_logging=).
+ */
+FileStream? vls_log_file = null;
+
+void vls_log_handler (string? domain, LogLevelFlags levels, string message) {
+    var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S");
+    string level_name = ((uint) levels).to_string ();
+    var formatted = "%s [%s] %s%s\n".printf (timestamp, level_name,
+                                              domain != null ? domain + ": " : "", message);
+    stderr.printf ("%s", formatted);
+    if (vls_log_file != null) {
+        vls_log_file.printf ("%s", formatted);
+        vls_log_file.flush ();
+    }
+}
+
+/**
  * `--version`
  */
 bool opt_version;
@@ -1293,30 +1310,22 @@ int main (string[] args) {
 
     // otherwise
 
-    // Enable all debug output regardless of environment
-    Environment.set_variable ("G_MESSAGES_DEBUG", "all", false);
-
-    // Duplicate log output to .tmp/vls-<PID>.log
-    var log_dir = File.new_for_path (".tmp");
-    try {
-        if (!log_dir.query_exists ())
-            log_dir.make_directory ();
-    } catch (Error e) {
-        stderr.printf ("warning: could not create .tmp directory: %s\n", e.message);
-    }
-    string log_path = ".tmp/vls-%d.log".printf (Posix.getpid ());
-    FileStream? log_file = FileStream.open (log_path, "a");
-    if (log_file != null) {
-        log_file.printf ("=== VLS started at %s ===\n", new DateTime.now ().to_string ());
-        Log.set_default_handler ((domain, levels, message) => {
-            var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S");
-            string level_name = ((uint) levels).to_string ();
-            var formatted = "%s [%s] %s%s\n".printf (timestamp, level_name,
-                                                      domain != null ? domain + ": " : "", message);
-            stderr.printf ("%s", formatted);
-            log_file.printf ("%s", formatted);
-            log_file.flush ();
-        });
+    // Enable debug logging if configured via meson -Ddebug_logging=...
+    if (Config.DEBUG_LOGGING != "") {
+        string log_path = Config.DEBUG_LOGGING;
+        var log_dir = File.new_for_path (Path.get_dirname (log_path));
+        try {
+            if (!log_dir.query_exists ())
+                log_dir.make_directory_with_parents ();
+        } catch (Error e) {
+            stderr.printf ("warning: could not create log directory: %s\n", e.message);
+        }
+        vls_log_file = FileStream.open (log_path, "a");
+        if (vls_log_file != null) {
+            vls_log_file.printf ("=== VLS started at %s ===\n", new DateTime.now ().to_string ());
+            Log.set_default_handler (vls_log_handler);
+            Environment.set_variable ("G_MESSAGES_DEBUG", "all", false);
+        }
     }
 
     var loop = new MainLoop ();
