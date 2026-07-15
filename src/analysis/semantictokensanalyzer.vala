@@ -26,55 +26,6 @@ namespace Vls {
     /**
      * A single semantic token extracted from the AST.
      */
-    class SemanticToken : Object {
-        public uint line { get; set; }
-        public uint character { get; set; }
-        public uint length { get; set; }
-        public uint token_type { get; set; }
-        public uint modifiers { get; set; }
-    }
-
-    /**
-     * LSP semantic token type indices.
-     */
-    enum SemanticTokenType {
-        NAMESPACE = 0,
-        CLASS = 1,
-        ENUM = 2,
-        INTERFACE = 3,
-        STRUCT = 4,
-        TYPE_PARAMETER = 5,
-        TYPE = 6,
-        PARAMETER = 7,
-        VARIABLE = 8,
-        PROPERTY = 9,
-        ENUM_MEMBER = 10,
-        EVENT = 11,
-        FUNCTION = 12,
-        METHOD = 13,
-        KEYWORD = 14,
-        STRING = 15,
-        NUMBER = 16,
-        COMMENT = 17,
-        OPERATOR = 18
-    }
-
-    /**
-     * LSP semantic token modifier bit indices.
-     */
-    enum SemanticTokenModifier {
-        DECLARATION = 0,
-        DEFINITION = 1,
-        READONLY = 2,
-        STATIC = 3,
-        DEPRECATED = 4,
-        ABSTRACT = 5,
-        ASYNC = 6,
-        MODIFICATION = 7,
-        DOCUMENTATION = 8,
-        DEFAULT_LIBRARY = 9
-    }
-
     /**
      * Analyzer that walks the full AST of a file and produces semantic tokens
      * for syntax highlighting.
@@ -137,29 +88,6 @@ namespace Vls {
             try_emit_token (line, character, length, token_type, modifiers);
         }
 
-        private int find_name_in_text (string text, string name) {
-            int search_start = 0;
-            while (true) {
-                int pos = text.index_of (name, search_start);
-                if (pos < 0)
-                    return -1;
-                bool prev_ok = pos == 0 || (!text[pos - 1].isalnum () && text[pos - 1] != '_');
-                int name_end = pos + name.length;
-                bool next_ok = name_end >= text.length || (!text[name_end].isalnum () && text[name_end] != '_');
-                if (prev_ok && next_ok)
-                    return pos;
-                search_start = pos + 1;
-            }
-        }
-
-        private uint line_byte_length (string content, uint line) {
-            long line_start = (long) Util.get_string_pos (content, line, 0);
-            long pos = line_start;
-            while (pos < content.length && content[pos] != '\n')
-                pos++;
-            return (uint) (pos - line_start);
-        }
-
         private void add_name_token (Vala.CodeNode node, string name, uint token_type, uint modifiers = 0) {
             if (name == null)
                 return;
@@ -179,7 +107,7 @@ namespace Vls {
             long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
             long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
             string text = content[from:to];
-            int name_start = find_name_in_text (text, name);
+            int name_start = Util.find_name_in_text (text, name);
             if (name_start < 0) {
                 debug ("[SEMTOK] add_name_token: name '%s' not found in text for node=%s",
                        name, node.type_name);
@@ -188,7 +116,7 @@ namespace Vls {
             uint line = (uint) (sr.begin.line - 1);
             uint character = (uint) (sr.begin.column - 1) + (uint) name_start;
             uint length = (uint) name.length;
-            uint max_len = line_byte_length (content, line);
+            uint max_len = Util.line_byte_length (content, line);
             if (character + length > max_len) {
                 debug ("[SEMTOK] add_name_token bounds fail: line=%u, char=%u, len=%u > max=%u, type=%u, node=%s",
                        line, character, length, max_len, token_type, node.type_name);
@@ -265,63 +193,6 @@ namespace Vls {
             return sr != null && sr.file == file;
         }
 
-        private bool is_decl_keyword (string word) {
-            switch (word) {
-                case "public":
-                case "private":
-                case "protected":
-                case "internal":
-                case "static":
-                case "class":
-                case "abstract":
-                case "virtual":
-                case "override":
-                case "async":
-                case "new":
-                case "sealed":
-                case "partial":
-                case "extern":
-                case "inline":
-                case "volatile":
-                case "const":
-                case "namespace":
-                case "struct":
-                case "enum":
-                case "interface":
-                case "signal":
-                case "delegate":
-                case "yield":
-                case "foreach":
-                case "in":
-                case "return":
-                case "throw":
-                case "delete":
-                case "lock":
-                case "if":
-                case "else":
-                case "switch":
-                case "case":
-                case "default":
-                case "for":
-                case "while":
-                case "do":
-                case "try":
-                case "catch":
-                case "finally":
-                case "break":
-                case "continue":
-                case "using":
-                case "get":
-                case "set":
-                case "owned":
-                case "unowned":
-                case "weak":
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
         private void emit_leading_keyword_tokens (Vala.SourceReference sr) {
             if (sr == null || sr.file != file)
                 return;
@@ -341,7 +212,7 @@ namespace Vls {
                 while (pos < text.length && (text[pos].isalpha () || text[pos] == '_'))
                     pos++;
                 string word = text[word_start:pos];
-                if (!is_decl_keyword (word))
+                if (!Util.is_decl_keyword (word))
                     break;
                 try_emit_token (base_line, base_col + word_start, pos - word_start, SemanticTokenType.KEYWORD, 0);
             }
@@ -546,32 +417,8 @@ namespace Vls {
                        1u << SemanticTokenModifier.DECLARATION);
         }
 
-        private uint sym_token_type (Vala.Symbol? sym) {
-            if (sym is Vala.Method || sym is Vala.CreationMethod || sym is Vala.Destructor)
-                return SemanticTokenType.METHOD;
-            if (sym is Vala.Property || sym is Vala.Field)
-                return SemanticTokenType.PROPERTY;
-            if (sym is Vala.Signal)
-                return SemanticTokenType.EVENT;
-            if (sym is Vala.EnumValue)
-                return SemanticTokenType.ENUM_MEMBER;
-            if (sym is Vala.Constant)
-                return SemanticTokenType.VARIABLE;
-            if (sym is Vala.TypeSymbol)
-                return SemanticTokenType.TYPE;
-            if (sym is Vala.Namespace)
-                return SemanticTokenType.NAMESPACE;
-            if (sym is Vala.Delegate)
-                return SemanticTokenType.FUNCTION;
-            if (sym is Vala.LocalVariable)
-                return SemanticTokenType.VARIABLE;
-            if (sym is Vala.Parameter)
-                return SemanticTokenType.PARAMETER;
-            return 255;
-        }
-
         private void emit_sym_token (Vala.SourceReference? sr, Vala.Symbol? sym) {
-            uint tok_type = sym_token_type (sym);
+            uint tok_type = Util.sym_token_type (sym);
             if (tok_type >= 255)
                 return;
             uint mods = 0;
@@ -591,7 +438,7 @@ namespace Vls {
                 var sr = expr.source_reference;
                 if (sr != null && sr.file == file) {
                     var sym = expr.symbol_reference;
-                    uint tok_type = sym_token_type (sym);
+                    uint tok_type = Util.sym_token_type (sym);
                     if (tok_type < 255) {
                         uint mods = 0;
                         if (sym is Vala.Constant)
@@ -599,7 +446,7 @@ namespace Vls {
                         uint line = (uint) sr.end.line - 1;
                         uint character = (uint) sr.end.column - (uint) member_name.length;
                         uint length = (uint) member_name.length;
-                        uint max_len = line_byte_length (sr.file.content, line);
+                        uint max_len = Util.line_byte_length (sr.file.content, line);
                         if (character + length <= max_len)
                             try_emit_token (line, character, length, tok_type, mods);
                     }

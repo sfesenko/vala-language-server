@@ -18,6 +18,51 @@
 
 using Gee;
 
+namespace Vls {
+    public class SemanticToken : Object {
+        public uint line { get; set; }
+        public uint character { get; set; }
+        public uint length { get; set; }
+        public uint token_type { get; set; }
+        public uint modifiers { get; set; }
+    }
+
+    enum SemanticTokenType {
+        NAMESPACE = 0,
+        CLASS = 1,
+        ENUM = 2,
+        INTERFACE = 3,
+        STRUCT = 4,
+        TYPE_PARAMETER = 5,
+        TYPE = 6,
+        PARAMETER = 7,
+        VARIABLE = 8,
+        PROPERTY = 9,
+        ENUM_MEMBER = 10,
+        EVENT = 11,
+        FUNCTION = 12,
+        METHOD = 13,
+        KEYWORD = 14,
+        STRING = 15,
+        NUMBER = 16,
+        COMMENT = 17,
+        OPERATOR = 18
+    }
+
+    enum SemanticTokenModifier {
+        DECLARATION = 0,
+        DEFINITION = 1,
+        READONLY = 2,
+        STATIC = 3,
+        DEPRECATED = 4,
+        ABSTRACT = 5,
+        ASYNC = 6,
+        MODIFICATION = 7,
+        DOCUMENTATION = 8,
+        DEFAULT_LIBRARY = 9
+    }
+}
+
 namespace Vls.Util {
     public static T? parse_variant<T> (Variant variant) {
         var json = Json.gvariant_serialize (variant);
@@ -476,5 +521,127 @@ namespace Vls.Util {
 
     public bool is_newline (char character) {
         return character == '\n' || character == '\r';
+    }
+
+    public int find_name_in_text (string text, string name) {
+        int search_start = 0;
+        while (true) {
+            int pos = text.index_of (name, search_start);
+            if (pos < 0)
+                return -1;
+            bool prev_ok = pos == 0 || (!text[pos - 1].isalnum () && text[pos - 1] != '_');
+            int name_end = pos + name.length;
+            bool next_ok = name_end >= text.length || (!text[name_end].isalnum () && text[name_end] != '_');
+            if (prev_ok && next_ok)
+                return pos;
+            search_start = pos + 1;
+        }
+    }
+
+    public uint line_byte_length (string content, uint line) {
+        long line_start = (long) get_string_pos (content, line, 0);
+        long pos = line_start;
+        while (pos < content.length && content[pos] != '\n')
+            pos++;
+        return (uint) (pos - line_start);
+    }
+
+    public uint sym_token_type (Vala.Symbol? sym) {
+        if (sym is Vala.Method || sym is Vala.CreationMethod || sym is Vala.Destructor)
+            return SemanticTokenType.METHOD;
+        if (sym is Vala.Property || sym is Vala.Field)
+            return SemanticTokenType.PROPERTY;
+        if (sym is Vala.Signal)
+            return SemanticTokenType.EVENT;
+        if (sym is Vala.EnumValue)
+            return SemanticTokenType.ENUM_MEMBER;
+        if (sym is Vala.Constant)
+            return SemanticTokenType.VARIABLE;
+        if (sym is Vala.TypeSymbol)
+            return SemanticTokenType.TYPE;
+        if (sym is Vala.Namespace)
+            return SemanticTokenType.NAMESPACE;
+        if (sym is Vala.Delegate)
+            return SemanticTokenType.FUNCTION;
+        if (sym is Vala.LocalVariable)
+            return SemanticTokenType.VARIABLE;
+        if (sym is Vala.Parameter)
+            return SemanticTokenType.PARAMETER;
+        return 255;
+    }
+
+    public Gee.List<uint> delta_encode (Gee.ArrayList<SemanticToken> tokens) {
+        var data = new Gee.ArrayList<uint> ();
+        uint prev_line = 0, prev_char = 0;
+        foreach (var token in tokens) {
+            data.add (token.line - prev_line);
+            if (token.line == prev_line)
+                data.add (token.character - prev_char);
+            else
+                data.add (token.character);
+            data.add (token.length);
+            data.add (token.token_type);
+            data.add (token.modifiers);
+            prev_line = token.line;
+            prev_char = token.character;
+        }
+        return data;
+    }
+
+    public bool is_decl_keyword (string word) {
+        switch (word) {
+            case "public":
+            case "private":
+            case "protected":
+            case "internal":
+            case "static":
+            case "class":
+            case "abstract":
+            case "virtual":
+            case "override":
+            case "async":
+            case "new":
+            case "sealed":
+            case "partial":
+            case "extern":
+            case "inline":
+            case "volatile":
+            case "const":
+            case "namespace":
+            case "struct":
+            case "enum":
+            case "interface":
+            case "signal":
+            case "delegate":
+            case "yield":
+            case "foreach":
+            case "in":
+            case "return":
+            case "throw":
+            case "delete":
+            case "lock":
+            case "if":
+            case "else":
+            case "switch":
+            case "case":
+            case "default":
+            case "for":
+            case "while":
+            case "do":
+            case "try":
+            case "catch":
+            case "finally":
+            case "break":
+            case "continue":
+            case "using":
+            case "get":
+            case "set":
+            case "owned":
+            case "unowned":
+            case "weak":
+                return true;
+            default:
+                return false;
+        }
     }
 }

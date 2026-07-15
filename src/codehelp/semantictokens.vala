@@ -59,24 +59,6 @@ namespace Vls.SemanticTokensHandler {
         return id;
     }
 
-    private Gee.List<uint> delta_encode (Gee.ArrayList<SemanticToken> tokens) {
-        var data = new ArrayList<uint> ();
-        uint prev_line = 0, prev_char = 0;
-        foreach (var token in tokens) {
-            data.add (token.line - prev_line);
-            if (token.line == prev_line)
-                data.add (token.character - prev_char);
-            else
-                data.add (token.character);
-            data.add (token.length);
-            data.add (token.token_type);
-            data.add (token.modifiers);
-            prev_line = token.line;
-            prev_char = token.character;
-        }
-        return data;
-    }
-
     private Gee.List<uint> filter_to_range (Gee.ArrayList<SemanticToken> tokens, Range range) {
         var filtered = new ArrayList<SemanticToken> ();
         foreach (var token in tokens) {
@@ -90,7 +72,7 @@ namespace Vls.SemanticTokensHandler {
                 continue;
             filtered.add (token);
         }
-        return delta_encode (filtered);
+        return Util.delta_encode (filtered);
     }
 
     private void reply_with_tokens (Server server, Jsonrpc.Client client, string method,
@@ -171,7 +153,7 @@ namespace Vls.SemanticTokensHandler {
 
             Vala.CodeContext.push (compilation.code_context);
             var tokens = compilation.get_analysis_for_file<SemanticTokensAnalyzer> (doc);
-            var data = delta_encode (tokens.get_tokens ());
+            var data = Util.delta_encode (tokens.get_tokens ());
             reply_with_tokens (server, client, method, id, data, null, p.textDocument.uri);
             Vala.CodeContext.pop ();
         });
@@ -200,7 +182,7 @@ namespace Vls.SemanticTokensHandler {
 
             Vala.CodeContext.push (compilation.code_context);
             var tokens = compilation.get_analysis_for_file<SemanticTokensAnalyzer> (doc);
-            var data = delta_encode (tokens.get_tokens ());
+            var data = Util.delta_encode (tokens.get_tokens ());
             reply_with_tokens (server, client, method, id, data, p.previousResultId, p.textDocument.uri);
             Vala.CodeContext.pop ();
         });

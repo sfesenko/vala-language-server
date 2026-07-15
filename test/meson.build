@@ -35,6 +35,10 @@ unit_tests = [
   '/vls/util/is_newline',
   '/vls/util/arg_is_vala_file',
   '/vls/util/serialize_roundtrip',
+  '/vls/util/find_name_in_text',
+  '/vls/util/line_byte_length',
+  '/vls/util/is_decl_keyword',
+  '/vls/util/delta_encode',
 ]
 
 foreach t : unit_tests
