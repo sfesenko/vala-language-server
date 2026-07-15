@@ -18,7 +18,7 @@
 
 /**
  * Visits the symbols in a file and maps their C name. This is used by the
- * documentation engine to equalize references to symbols in VAPIs with 
+ * documentation engine to equalize references to symbols in VAPIs with
  * references to symbols in corresponding GIRs. It is also used to map
  * references to C names in documentation text to references to symbols
  * in VAPIs.

@@ -96,7 +96,7 @@ class Vls.ImplementMissingPrereqsAction : CodeAction {
                 return_type = ((Vala.Callable)sym).return_type.get_actual_type (instance_type, null, null);
             else if (sym is Vala.Property)
                 return_type = ((Vala.Property)sym).property_type.get_actual_type (instance_type, null, null);
-            
+
             if (return_type != null) {
                 string? return_type_representation = CodeHelp.get_data_type_representation (return_type, class_sym.scope);
                 symbols_insert_text.append (return_type_representation);
@@ -114,7 +114,7 @@ class Vls.ImplementMissingPrereqsAction : CodeAction {
                     type_parameters = ((Vala.Delegate)sym).get_type_parameters ();
                 else if (sym is Vala.Method)
                     type_parameters = ((Vala.Method)sym).get_type_parameters ();
-                
+
                 if (type_parameters != null && !type_parameters.is_empty) {
                     symbols_insert_text.append_c ('<');
                     int i = 1;
@@ -161,7 +161,7 @@ class Vls.ImplementMissingPrereqsAction : CodeAction {
         }
         document_edit.edits.add (new TextEdit (new Range () {
             start = classdef_end,
-            end = classdef_end 
+            end = classdef_end
         }, symbols_insert_text.str));
 
         this.edit.documentChanges = changes;

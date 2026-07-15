@@ -33,15 +33,15 @@ class Vls.DefaultProject : Project {
     }
 
     /**
-     * List of opened files (path names) for each compilation. Single-file 
+     * List of opened files (path names) for each compilation. Single-file
      * compilations actually include multiple VAPI files, so we need to handle
      * cases where the user tries to open/close a VAPI that belongs to another
      * compilation.
      */
     private HashMultiMap<Compilation, string> opened = new HashMultiMap<Compilation, string> (
         null,
-        null, 
-        str_hash, 
+        null,
+        str_hash,
         str_equal
     );
 
@@ -64,7 +64,7 @@ class Vls.DefaultProject : Project {
         // if the file is already open (ex: glib.vapi)
         if (!results.is_empty) {
             foreach (var item in results) {
-                // we may be opening a VAPI that is already a part of another 
+                // we may be opening a VAPI that is already a part of another
                 // compilation, so ensure this file is marked as open
                 opened[item.second] = item.first.filename;
                 debug ("returning %s for %s", item.first.filename, uri);

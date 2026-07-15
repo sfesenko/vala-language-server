@@ -30,9 +30,9 @@ namespace Vls.Rename {
         // before anything, sanity-check the new symbol name
         if (!/^(?=[^\d])[^\s~`!#%^&*()\-\+={}\[\]|\\\/?.>,<'";:]+$/.match (new_name)) {
             client.reply_error_async.begin (
-                id, 
-                Jsonrpc.ClientError.INVALID_REQUEST, 
-                "Invalid symbol name. Symbol names cannot start with a number and must not contain any operators.", 
+                id,
+                Jsonrpc.ClientError.INVALID_REQUEST,
+                "Invalid symbol name. Symbol names cannot start with a number and must not contain any operators.",
                 Server.cancellable);
             return;
         }
@@ -90,7 +90,7 @@ namespace Vls.Rename {
             foreach (var btarget in project.get_compilations ())
                 generated_vapis.add_all (btarget.output);
             var shown_files = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
-            bool is_abstract_or_virtual = 
+            bool is_abstract_or_virtual =
                 symbol is Vala.Property && (((Vala.Property)symbol).is_virtual || ((Vala.Property)symbol).is_abstract) ||
                 symbol is Vala.Method && (((Vala.Method)symbol).is_virtual || ((Vala.Method)symbol).is_abstract) ||
                 symbol is Vala.Signal && ((Vala.Signal)symbol).is_virtual;
@@ -119,9 +119,9 @@ namespace Vls.Rename {
                         references[entry.key] = entry.value;
                     shown_files.add (file);
                 }
-            
+
             debug ("[%s] found %d references", method, references.size);
-            
+
             // construct the edits for the text documents
             // map: file URI -> TextEdit[]
             var edits = new Gee.HashMap<string, Gee.ArrayList<TextEdit>> ();
@@ -130,9 +130,9 @@ namespace Vls.Rename {
             foreach (var entry in references) {
                 var code_node = entry.value;
                 var source_range = entry.key;
-                debug ("[%s] editing reference %s @ %s ...", 
-                    method, 
-                    CodeHelp.get_code_node_source (code_node), 
+                debug ("[%s] editing reference %s @ %s ...",
+                    method,
+                    CodeHelp.get_code_node_source (code_node),
                     code_node.source_reference.to_string ());
                 var file = File.new_for_commandline_arg (code_node.source_reference.file.filename);
                 if (!edits.has_key (file.get_uri ()))
@@ -158,7 +158,7 @@ namespace Vls.Rename {
             try {
                 Variant changes = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (text_document_edits_json), null);
                 client.reply (
-                    id, 
+                    id,
                     server.build_dict (
                         documentChanges: changes
                     ),
@@ -189,7 +189,7 @@ namespace Vls.Rename {
                 Server.reply_null (id, client, method);
                 return;
             }
-            
+
             Vala.CodeContext.push (compilation.code_context);
 
             var resolved = Server.resolve_best_node (doc, pos);
@@ -215,9 +215,9 @@ namespace Vls.Rename {
                 node is Vala.Method && ((Vala.Method)node).closure) {
                 // TODO: rewrite all code to use async
                 client.reply_error_async.begin (
-                    id, 
-                    Jsonrpc.ClientError.INVALID_REQUEST, 
-                    "There is no symbol at the cursor.", 
+                    id,
+                    Jsonrpc.ClientError.INVALID_REQUEST,
+                    "There is no symbol at the cursor.",
                     Server.cancellable);
                 Vala.CodeContext.pop ();
                 return;
@@ -245,8 +245,8 @@ namespace Vls.Rename {
                     // TODO: rewrite all code to use async
                     string? pkg = btarget_w_sym.second.source_reference.file.package_name;
                     client.reply_error_async.begin (
-                        id, 
-                        Jsonrpc.ClientError.INVALID_REQUEST, 
+                        id,
+                        Jsonrpc.ClientError.INVALID_REQUEST,
                         "Cannot rename a symbol defined in a system library" + (pkg != null ? @" ($pkg)." : "."),
                         Server.cancellable);
                     Vala.CodeContext.pop ();

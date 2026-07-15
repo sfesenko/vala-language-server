@@ -201,7 +201,7 @@ class Vls.Server : Jsonrpc.Server {
             case "textDocument/documentHighlight":
                 Navigation.show_references (this, client, method, id, parameters);
                 break;
-                
+
             case "textDocument/implementation":
                 Navigation.show_implementations (this, client, method, id, parameters);
                 break;
@@ -441,7 +441,7 @@ class Vls.Server : Jsonrpc.Server {
                 }
             }
         }
-        
+
         // try compile_commands.json if Meson failed
         if (backend_project == null && !cc_files.is_empty) {
             foreach (var cc_file in cc_files) {
@@ -463,9 +463,14 @@ class Vls.Server : Jsonrpc.Server {
             var autogen_sh = root_dir.get_child ("autogen.sh");
 
             if (cmake_file.query_exists (cancellable))
-                show_message (client, @"CMake build system is not currently supported. Only Meson is. See https://github.com/vala-lang/vala-language-server/issues/73", MessageType.Warning);
+                show_message (client,
+                    "CMake build system is not currently supported. Only Meson is. "
+                    + "See https://github.com/vala-lang/vala-language-server/issues/73",
+                    MessageType.Warning);
             if (autogen_sh.query_exists (cancellable))
-                show_message (client, @"Autotools build system is not currently supported. Consider switching to Meson.", MessageType.Warning);
+                show_message (client,
+                    "Autotools build system is not currently supported. "
+                    + "Consider switching to Meson.", MessageType.Warning);
         } else {
             new_projects.add (backend_project);
         }
@@ -532,10 +537,9 @@ class Vls.Server : Jsonrpc.Server {
 
     void text_document_did_open (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
-
-        string? uri         = (string) document.lookup_value ("uri",        VariantType.STRING);
-        string languageId   = (string) document.lookup_value ("languageId", VariantType.STRING);
-        string fileContents = (string) document.lookup_value ("text",       VariantType.STRING);
+        string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
+        string languageId = (string) document.lookup_value ("languageId", VariantType.STRING);
+        string fileContents = (string) document.lookup_value ("text", VariantType.STRING);
 
         if (languageId != "vala" && languageId != "genie") {
             warning (@"[textDocument/didOpen] $languageId file sent to vala language server");
@@ -543,7 +547,7 @@ class Vls.Server : Jsonrpc.Server {
         }
 
         if (uri == null) {
-            warning (@"[textDocument/didOpen] null URI sent to vala language server");
+            warning ("[textDocument/didOpen] null URI sent to vala language server");
             return;
         }
 
@@ -587,7 +591,7 @@ class Vls.Server : Jsonrpc.Server {
             doc.get_mapped_contents ();
         if (doc is TextDocument) {
             var tdoc = (TextDocument) doc;
-            debug (@"[textDocument/didOpen] opened $(Uri.unescape_string (uri))"); 
+            debug (@"[textDocument/didOpen] opened $(Uri.unescape_string (uri))");
             tdoc.last_saved_content = fileContents;
             bool content_changed = tdoc.content != fileContents;
             debug ("[SEMTOK] didOpen: uri=%s, content_len=%d, content_changed=%s",
@@ -597,7 +601,7 @@ class Vls.Server : Jsonrpc.Server {
                 tdoc.last_updated = new DateTime.now ();
                 debug ("[SEMTOK] didOpen: set content, last_updated=%s", tdoc.last_updated.to_string ());
                 request_context_update (client);
-                debug (@"[textDocument/didOpen] requested context update");
+                debug ("[textDocument/didOpen] requested context update");
             }
         } else {
             debug (@"[textDocument/didOpen] opened read-only $(Uri.unescape_string (uri))");
@@ -612,7 +616,7 @@ class Vls.Server : Jsonrpc.Server {
 
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
         if (uri == null) {
-            warning (@"[textDocument/didSave] null URI sent to vala language server");
+            warning ("[textDocument/didSave] null URI sent to vala language server");
             return;
         }
 
@@ -637,10 +641,10 @@ class Vls.Server : Jsonrpc.Server {
 
     void text_document_did_close (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
-        string? uri         = (string) document.lookup_value ("uri",        VariantType.STRING);
+        string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
 
         if (uri == null) {
-            warning (@"[textDocument/didClose] null URI sent to vala language server");
+            warning ("[textDocument/didClose] null URI sent to vala language server");
             return;
         }
 
@@ -652,7 +656,7 @@ class Vls.Server : Jsonrpc.Server {
                 if (project.close (uri)) {
                     discarded_files.add (uri);
                     request_context_update (client);
-                    debug (@"[textDocument/didClose] requested context update");
+                    debug ("[textDocument/didClose] requested context update");
                 }
                 debug ("[textDocument/didClose] closed %s", uri);
             } catch (Error e) {
@@ -681,7 +685,7 @@ class Vls.Server : Jsonrpc.Server {
                 var source_file = pair.first;
 
                 if (!(source_file is TextDocument)) {
-                    warning (@"[textDocument/didChange] Ignoring change to system file");
+                    warning ("[textDocument/didChange] Ignoring change to system file");
                     return;
                 }
 
@@ -692,7 +696,7 @@ class Vls.Server : Jsonrpc.Server {
                 }
 
                 if (source_file.content == null) {
-                    error (@"[textDocument/didChange] source content is null!");
+                    error ("[textDocument/didChange] source content is null!");
                 }
 
                 // update the document
@@ -722,11 +726,11 @@ class Vls.Server : Jsonrpc.Server {
         }
     }
 
-    /** 
+    /**
      * Indicate to the server that the code context(s) it is tracking may
      * need to be refreshed.
-     * 
-     * @param client        the client to eventually send a `publishDiagnostics` 
+     *
+     * @param client        the client to eventually send a `publishDiagnostics`
      *                      notification to, if the context is refreshed
      */
     void request_context_update (Jsonrpc.Client client) {
@@ -738,7 +742,7 @@ class Vls.Server : Jsonrpc.Server {
                (int) update_context_requests, (int) (delay_us / 1000));
     }
 
-    /** 
+    /**
      * Reconfigure the project if needed, and check whether we need to rebuild
      * the project and documentation engine if we have context update requests.
      */
@@ -762,7 +766,8 @@ class Vls.Server : Jsonrpc.Server {
                     if (reconfigured && project != default_project) {
                         var newly_added = new HashSet<string> ();
                         foreach (var compilation in project.get_compilations ())
-                            newly_added.add_all_iterator (compilation.get_project_files ().map<string> (f => f.filename));
+                            newly_added.add_all_iterator
+                                (compilation.get_project_files ().map<string> (f => f.filename));
                         foreach (var compilation in default_project.get_compilations ()) {
                             foreach (var source_file in compilation.get_project_files ()) {
                                 if (newly_added.contains (source_file.filename)) {
@@ -788,7 +793,9 @@ class Vls.Server : Jsonrpc.Server {
                         publish_diagnostics (project, compilation, update_context_client);
                 } catch (Error e) {
                     warning ("Failed to rebuild and/or reconfigure project: %s", e.message);
-                    show_message (update_context_client, @"Failed to rebuild/reconfigure project: $(e.message)", MessageType.Error);
+                    show_message (update_context_client,
+                        @"Failed to rebuild/reconfigure project: $(e.message)",
+                        MessageType.Error);
                 }
             }
 
@@ -842,7 +849,7 @@ class Vls.Server : Jsonrpc.Server {
 
     /**
      * Rather than satisfying all requests in `check_update_context ()`,
-     * to avoid race conditions, we have to spawn a timeout to check for 
+     * to avoid race conditions, we have to spawn a timeout to check for
      * the right conditions to call `on_context_updated_func ()`.
      */
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func) {
@@ -1206,7 +1213,8 @@ class Vls.Server : Jsonrpc.Server {
 
         Vala.CodeContext.push (compilation.code_context);
         var code_actions = CodeActions.extract (p.context, compilation,
-                                                (TextDocument) source_file, p.range, Uri.unescape_string (p.textDocument.uri));
+                                                (TextDocument) source_file, p.range,
+                                                Uri.unescape_string (p.textDocument.uri));
         foreach (var action in code_actions)
             json_array.add_element (Json.gobject_serialize (action));
         Vala.CodeContext.pop ();
@@ -1217,7 +1225,6 @@ class Vls.Server : Jsonrpc.Server {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
     }
-
 
     /**
      * handle an incoming `textDocument/codeLens` request
@@ -1269,13 +1276,13 @@ FileStream? vls_log_file = null;
 
 private static string log_level_name (LogLevelFlags levels) {
     switch ((uint) levels & ~0x3u) {
-        case 4:    return "ERROR";
-        case 8:    return "CRITICAL";
-        case 16:   return "WARNING";
-        case 32:   return "MESSAGE";
-        case 64:   return "INFO";
-        case 128:  return "DEBUG";
-        default:   return ((uint) levels).to_string ();
+        case 4: return "ERROR";
+        case 8: return "CRITICAL";
+        case 16: return "WARNING";
+        case 32: return "MESSAGE";
+        case 64: return "INFO";
+        case 128: return "DEBUG";
+        default: return ((uint) levels).to_string ();
     }
 }
 

@@ -45,7 +45,7 @@ namespace Vls.CodeLensEngine {
     /**
      * Represent the symbol in a special way for code lenses:
      * `{parent with type parameters}.{symbol_name}`
-     * 
+     *
      * We don't care to show modifiers, return types, and/or parameters.
      */
     string represent_symbol (Vala.Symbol current_symbol, Vala.Symbol target_symbol) {

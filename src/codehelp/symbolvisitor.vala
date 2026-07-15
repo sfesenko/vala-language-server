@@ -253,7 +253,7 @@ class Vls.SymbolVisitor : CodeVisitor {
             func (stmt);
         stmt.accept_children (this);
     }
-    
+
     public override void visit_destructor (Destructor dtor) {
         if (seen.contains (dtor))
             return;

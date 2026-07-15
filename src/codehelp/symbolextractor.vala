@@ -60,7 +60,10 @@ class Vls.SymbolExtractor : Object {
         public bool is_pointer { get; private set; }
         public bool null_safe { get; private set; }
 
-        public FakeMemberAccess (string member_name, ArrayList<FakeDataType>? type_arguments = null, FakeExpr? inner = null, bool is_pointer = false, bool null_safe = false) {
+        public FakeMemberAccess (string member_name,
+                                  ArrayList<FakeDataType>? type_arguments = null,
+                                  FakeExpr? inner = null,
+                                  bool is_pointer = false, bool null_safe = false) {
             base (inner);
             this.member_name = member_name;
             this.type_arguments = type_arguments ?? new ArrayList<FakeDataType> ();
@@ -164,7 +167,7 @@ class Vls.SymbolExtractor : Object {
         public FakeRealLiteral (string value) {
             base (value);
         }
-        
+
         public override string to_string () {
             return @"(real) $value";
         }
@@ -311,15 +314,11 @@ class Vls.SymbolExtractor : Object {
     }
 
 
-#if !VALA_FEATURE_INITIAL_ARGUMENT_COUNT
     /**
      * If extracted_expression is a method call, this is the number of
      * arguments supplied to that method call.
-     * This feature is only used if the version of Vala VLS was compiled
-     * with lacks initial_argument_count fields for `Vala.MethodCall`
      */
     public int method_arguments { get; private set; default = -1; }
-#endif
 
     public SymbolExtractor (Position pos, Vala.SourceFile source_file, Vala.CodeContext? context = null) {
         this.idx = (long) Util.get_string_pos (source_file.content, pos.line, pos.character);
@@ -412,8 +411,8 @@ class Vls.SymbolExtractor : Object {
 
     /**
      * Reinterprets a member access as a data type. For example, if we have `Vala.List<int>`,
-     * this is a member access (`Vala` and then `List`) that is a type symbol with parameter `int`. 
-     * This method handles the type arguments of the member access so that they become the type 
+     * this is a member access (`Vala` and then `List`) that is a type symbol with parameter `int`.
+     * This method handles the type arguments of the member access so that they become the type
      * arguments of the data type.
      *
      * @return the new data type, or invalid if the member access is not of a type symbol
@@ -438,7 +437,8 @@ class Vls.SymbolExtractor : Object {
                 type_parameters = ((Vala.Struct)ma_expr.symbol_reference).get_type_parameters ();
             if (type_parameters != null) {
                 foreach (var type_parameter in type_parameters) {
-                    int idx = ((Vala.TypeSymbol)ma_expr.symbol_reference).get_type_parameter_index (type_parameter.name);
+                    int idx = ((Vala.TypeSymbol)ma_expr.symbol_reference)
+                        .get_type_parameter_index (type_parameter.name);
                     if (idx < type_arguments.size && idx < data_type_type_arguments.size)
                         data_type.replace_type (data_type_type_arguments[idx], type_arguments[idx]);
                     else
@@ -459,7 +459,8 @@ class Vls.SymbolExtractor : Object {
             };
         } else if (fake_type is FakeSymbolDataType) {
             var fake_st = (FakeSymbolDataType) fake_type;
-            var data_type = convert_member_access_to_data_type ((Vala.MemberAccess) resolve_typed_expression (fake_st.type_symbol));
+            var data_type = convert_member_access_to_data_type
+                ((Vala.MemberAccess) resolve_typed_expression (fake_st.type_symbol));
             data_type.value_owned = fake_st.is_owned;
             return data_type;
         } else {
@@ -494,7 +495,8 @@ class Vls.SymbolExtractor : Object {
                         } else {
                             var with_symbol = inner_with.symbol_reference;
                             if (with_symbol != null)
-                                resolved_sym = Vala.SemanticAnalyzer.symbol_lookup_inherited (with_symbol, fake_ma.member_name);
+                                resolved_sym = Vala.SemanticAnalyzer
+                                    .symbol_lookup_inherited (with_symbol, fake_ma.member_name);
                         }
 
                         if (resolved_sym != null)
@@ -521,7 +523,7 @@ class Vls.SymbolExtractor : Object {
                         Vala.DataType? found_base_type = null;
                         // attempt to resolve this as a base access
                         for (var starting_block = current_block ?? block;
-                             starting_block != null && found_base_type == null; 
+                             starting_block != null && found_base_type == null;
                              starting_block = starting_block.parent_symbol) {
                             if (starting_block is Vala.Class) {
                                 foreach (var base_type in ((Vala.Class)starting_block).get_base_types ()) {
@@ -560,7 +562,8 @@ class Vls.SymbolExtractor : Object {
                 expr.value_type = get_data_type_for_symbol (resolved_sym);
 #if VALA_0_50
                 if (expr.value_type != null && inner_with != null && inner_with.value_type != null)
-                    expr.value_type = expr.value_type.get_actual_type (inner_with.value_type, method_type_arguments, expr);
+                    expr.value_type = expr.value_type.get_actual_type
+                        (inner_with.value_type, method_type_arguments, expr);
 #endif
                 return expr;
             } else {
@@ -611,7 +614,7 @@ class Vls.SymbolExtractor : Object {
             Vala.Callable? callable;
             if (call.value_type != null) {
                 callable = Vala.SemanticAnalyzer.get_symbol_for_data_type (call.value_type) as Vala.Callable;
-                if (callable == null && !(fake_mc.inner is FakeMemberAccess && 
+                if (callable == null && !(fake_mc.inner is FakeMemberAccess &&
                         ((FakeMemberAccess)fake_mc.inner).member_name == "this" ||
                         ((FakeMemberAccess)fake_mc.inner).member_name == "base"))
                     throw new TypeResolutionError.NTH_EXPRESSION ("could not get callable symbol for inner data type");
@@ -629,9 +632,6 @@ class Vls.SymbolExtractor : Object {
             // add arguments to method call
             foreach (var fake_arg in fake_mc.arguments)
                 expr.add_argument (resolve_typed_expression (fake_arg));
-#if VALA_FEATURE_INITIAL_ARGUMENT_COUNT
-            expr.initial_argument_count = fake_mc.arguments_count;
-#endif
             return expr;
         } else if (fake_expr is FakeObjectCreationExpr) {
             var fake_oce = (FakeObjectCreationExpr) fake_expr;
@@ -651,9 +651,6 @@ class Vls.SymbolExtractor : Object {
                 } else {
                     throw new TypeResolutionError.NTH_EXPRESSION ("OCE: inner expr neither Class nor method");
                 }
-#if VALA_FEATURE_INITIAL_ARGUMENT_COUNT
-                expr.initial_argument_count = ((FakeMethodCall)fake_oce.inner).arguments_count;
-#endif
                 return expr;
             } else {
                 // inner is Vala.MemberAccess
@@ -735,7 +732,7 @@ class Vls.SymbolExtractor : Object {
 
         // debug ("extracted expression - %s", expr.to_string ());
         _in_fake_oce = expr is FakeObjectCreationExpr && !(((FakeObjectCreationExpr)expr).inner is FakeMethodCall && at_ma);
-        
+
         try {
             _extracted_expression = resolve_typed_expression (expr);
             // debug ("resolved extracted expression as %s", _extracted_expression.type_name);
@@ -780,7 +777,7 @@ class Vls.SymbolExtractor : Object {
 
         if (lb_idx == idx || lb_idx < 0)
             return null;
-        
+
         if (!(source_file.content[lb_idx+1].isalpha () || source_file.content[lb_idx+1] == '_'))
             // ident must start with alpha or underline character
             return null;
@@ -804,24 +801,24 @@ class Vls.SymbolExtractor : Object {
 
         if (lb_idx < 0)
             return null;
-        
+
         if (source_file.content[lb_idx] != '"')
             return null;
-        
+
         lb_idx--;
 
         while (lb_idx > 0 && (source_file.content[lb_idx] != '"' || lb_idx > 0 && source_file.content[lb_idx-1] == '\\'))
             lb_idx--;
-        
+
         if (source_file.content[lb_idx] != '"')
             return null;
-        
+
         // move behind the leftmost quote
         lb_idx--;
-        
+
         if (lb_idx == idx || lb_idx < 0)
             return null;
-        
+
         string str = source_file.content.substring (lb_idx + 1, idx - lb_idx);
         idx = lb_idx;   // update idx
 
@@ -833,10 +830,10 @@ class Vls.SymbolExtractor : Object {
 
         while (lb_idx > 0 && "ismx".index_of_char (source_file.content[lb_idx]) != -1)
             lb_idx--;
-        
+
         if (source_file.content[lb_idx] != '/')
             return null;
-        
+
         lb_idx--;
 
         while (lb_idx > 0 && !Util.is_newline (source_file.content[lb_idx]) &&
@@ -845,7 +842,7 @@ class Vls.SymbolExtractor : Object {
 
         if (source_file.content[lb_idx] != '/')
             return null;
-        
+
         string str = source_file.content.substring (lb_idx, idx - lb_idx);
         idx = lb_idx;   // update idx
 
@@ -860,7 +857,7 @@ class Vls.SymbolExtractor : Object {
 
         if (lb_idx == idx || lb_idx < 0 || source_file.content[lb_idx].isalnum () || source_file.content[lb_idx] == '_')
             return null;
-        
+
         string str = source_file.content.substring (lb_idx + 1, idx - lb_idx);
         idx = lb_idx;
 
@@ -895,9 +892,9 @@ class Vls.SymbolExtractor : Object {
             lb_idx -= 2;
         else
             return null;
-        
+
         lb_idx--;
-        
+
         string str = source_file.content.substring (lb_idx + 1, idx - lb_idx);
         this.idx = lb_idx;
 
@@ -940,7 +937,7 @@ class Vls.SymbolExtractor : Object {
         return skip_string ("?.") || skip_char ('.') || skip_string ("->");
     }
 
-    private bool parse_expr_tuple (bool allow_no_right_paren, ArrayList<FakeExpr> expressions, 
+    private bool parse_expr_tuple (bool allow_no_right_paren, ArrayList<FakeExpr> expressions,
                                    char begin_separator = '(', char end_separator = ')') {
         // allow for incomplete method call if first expression (useful for SignatureHelp)
         long saved_idx = this.idx;
@@ -979,7 +976,7 @@ class Vls.SymbolExtractor : Object {
         }
         if (skip_char (begin_separator))
             return true;
-        this.idx = saved_idx;           // restore saved index 
+        this.idx = saved_idx;           // restore saved index
         return false;
     }
 
@@ -1072,7 +1069,7 @@ class Vls.SymbolExtractor : Object {
         if (!skip_char ('>'))
             return null;
         skip_whitespace ();
-        
+
         var type_arguments = new ArrayList<FakeDataType> ();
         FakeDataType? data_type = null;
         while ((data_type = parse_fake_data_type ()) != null) {
@@ -1081,7 +1078,7 @@ class Vls.SymbolExtractor : Object {
             if (!skip_char (','))
                 break;
         }
-        
+
         skip_whitespace ();
         if (!skip_char ('<')) {
             this.idx = saved_idx;
@@ -1097,7 +1094,7 @@ class Vls.SymbolExtractor : Object {
 
         if (!skip_char (')'))
             return null;
-        
+
         if ((data_type = parse_fake_data_type ()) == null) {
             this.idx = saved_idx;
             return null;
@@ -1136,7 +1133,7 @@ class Vls.SymbolExtractor : Object {
         return ma_expr;
     }
 
-    private FakeExpr? parse_fake_expr (bool oce_allowed = false, 
+    private FakeExpr? parse_fake_expr (bool oce_allowed = false,
                                        bool accept_incomplete_method_call = false,
                                        bool at_member_access = false,
                                        bool accept_incomplete_oce = false) {
@@ -1179,7 +1176,7 @@ class Vls.SymbolExtractor : Object {
 
         if (have_tuple && expr != null)
             expr = new FakeMethodCall (method_arguments, expr);
-        
+
         if (oce_allowed) {
             skip_whitespace ();
             if ((have_tuple || accept_incomplete_oce) && skip_ident ("new")) {

@@ -84,7 +84,7 @@ namespace Vls.HoverHandler {
                     data_type = ((Vala.ObjectCreationExpression)expr.parent_node).value_type;
 
                 // if data_type is the same as this variable's type, then this variable is not a member
-                // of the type 
+                // of the type
                 // (note: this avoids variable's generic type arguments being resolved to InvalidType)
                 if (symbol is Vala.Variable && data_type != null && data_type.equals (((Vala.Variable)symbol).variable_type))
                     data_type = null;
@@ -141,7 +141,7 @@ namespace Vls.HoverHandler {
                     language = "vala",
                     value = representation
                 });
-                
+
                 if (symbol != null) {
                     var comment = server.get_symbol_documentation (project, symbol);
                     if (comment != null) {

@@ -54,8 +54,7 @@ class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
      * @return an empty string if indentation couldn't be determined
      */
     public string get_indentation (CodeNode stmt_or_sym, uint nesting_level = 0)
-        requires (stmt_or_sym is Statement || stmt_or_sym is Symbol)
-    {
+        requires (stmt_or_sym is Statement || stmt_or_sym is Symbol) {
         if (stmt_or_sym.source_reference == null)
             return "";
 

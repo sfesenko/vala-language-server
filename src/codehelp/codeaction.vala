@@ -97,7 +97,7 @@ namespace Vls.CodeActions {
                     if (!found_default && sws.source_reference != null)
                         code_actions.add (new AddDefaultToSwitchAction (context, sws, document, code_style));
                     if (!consts_by_name.is_empty && sws.source_reference != null)
-                        code_actions.add (new AddOtherConstantsToSwitchAction (context, 
+                        code_actions.add (new AddOtherConstantsToSwitchAction (context,
                                                                                sws, document,
                                                                                (Enum)e, consts_by_name, code_style));
                 } else {

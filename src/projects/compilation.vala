@@ -351,7 +351,7 @@ class Vls.Compilation : BuildTarget {
             // generated files are also part of the project, so we use TextDocument intead of Vala.SourceFile
             try {
                 if (!generated_file.query_exists ())
-                    throw new FileError.NOENT (@"file does not exist");
+                    throw new FileError.NOENT ("file does not exist");
                 code_context.add_source_file (new TextDocument (code_context, generated_file));
             } catch (Error e) {
                 warning ("could not add file for %s: %s - %s", id, generated_file.get_uri (), e.message);

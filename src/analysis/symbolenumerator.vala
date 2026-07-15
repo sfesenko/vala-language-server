@@ -29,7 +29,7 @@ class Vls.SymbolEnumerator : Vala.CodeVisitor, CodeAnalyzer {
     private Gee.List<DocumentSymbol> all_syms;
     private Gee.List<SymbolInformation>? all_sym_infos;
     private Gee.HashMap<string, DocumentSymbol> ns_name_to_dsym;
-    Vala.TypeSymbol? str_sym; 
+    Vala.TypeSymbol? str_sym;
     string uri;
 
     public DateTime last_updated { get; set; }
@@ -134,7 +134,7 @@ class Vls.SymbolEnumerator : Vala.CodeVisitor, CodeAnalyzer {
                 // debug (@"adding $(dsym.name) to current_sym $(current_sym.name)");
                 current_sym.children.add (dsym);
             } else {
-                if (sym.parent_symbol is Vala.Namespace 
+                if (sym.parent_symbol is Vala.Namespace
                     && sym.parent_symbol.to_string () != "(root namespace)") {
                     DocumentSymbol parent_dsym;
                     if (!ns_name_to_dsym.has_key (sym.parent_symbol.get_full_name ())) {

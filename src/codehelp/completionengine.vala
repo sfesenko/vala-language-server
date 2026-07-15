@@ -53,7 +53,7 @@ namespace Vls.CompletionEngine {
         // next, move back to the first non-space
         while (lb_idx > 0 && doc.content[lb_idx].isspace ())
             lb_idx--;
-        
+
         // now attempt to find a member access
         while (lb_idx >= 0 && !doc.content[lb_idx].isspace ()) {
             // if we're at a member access operator, we're done
@@ -78,7 +78,7 @@ namespace Vls.CompletionEngine {
             }
             lb_idx--;
         }
-        
+
         var completions = new HashSet<CompletionItem> ();
 
         if (idx >= 1 && doc.content[idx-1] == '-' && doc.content[idx] == '>') {
@@ -98,7 +98,8 @@ namespace Vls.CompletionEngine {
         } else {
             // The editor requested a member access completion from a '>'.
             // This is a hack since the LSP doesn't allow us to specify a trigger string ("->" in this case)
-            if (completion_context != null && completion_context.triggerKind == CompletionTriggerKind.TriggerCharacter) {
+            if (completion_context != null
+                && completion_context.triggerKind == CompletionTriggerKind.TriggerCharacter) {
                 // completion conditions are not satisfied
                 finish (client, id, completions);
                 return;
@@ -129,8 +130,8 @@ namespace Vls.CompletionEngine {
 
                     Vala.CodeContext.push (compilation.code_context);
                     show_members_with_updated_context (lang_serv, project,
-                                                       client, id, 
-                                                       doc, compilation, 
+                                                       client, id,
+                                                       doc, compilation,
                                                        is_null_safe_access, is_pointer_access,
                                                        pos, end_pos, completions);
                     finish (client, id, completions);
@@ -148,24 +149,31 @@ namespace Vls.CompletionEngine {
             Vala.Expression? nearest_with_expression;
             bool in_loop;
             bool showing_override_suggestions = false;
-            walk_up_current_scope (lang_serv, doc, pos, out best_scope, out nearest_symbol, out nearest_with_expression, out in_loop);
+            walk_up_current_scope (lang_serv, doc, pos,
+                                   out best_scope, out nearest_symbol,
+                                   out nearest_with_expression, out in_loop);
             if (nearest_with_expression != null) {
-                show_members (lang_serv, project, doc, compilation, false, false, false, nearest_with_expression, best_scope, completions);
+                show_members (lang_serv, project, doc, compilation,
+                              false, false, false, nearest_with_expression, best_scope, completions);
             }
             if (nearest_symbol is Vala.Class) {
                 var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols ((Vala.Class) nearest_symbol);
                 // TODO: use missing prereqs (results.first)
-                list_implementable_symbols (lang_serv, project, compilation, doc, (Vala.Class) nearest_symbol, best_scope, results.second, completions, prefix);
+                list_implementable_symbols (lang_serv, project, compilation, doc,
+                                            (Vala.Class) nearest_symbol, best_scope,
+                                            results.second, completions, prefix);
                 showing_override_suggestions = !completions.is_empty;
             }
             if (nearest_symbol is Vala.ObjectTypeSymbol) {
                 list_implementable_symbols (lang_serv, project, compilation, doc,
                                             (Vala.ObjectTypeSymbol) nearest_symbol, best_scope,
-                                            CodeHelp.gather_base_virtual_symbols_not_overridden ((Vala.ObjectTypeSymbol) nearest_symbol),
+                                            CodeHelp.gather_base_virtual_symbols_not_overridden
+                                                ((Vala.ObjectTypeSymbol) nearest_symbol),
                                             completions, prefix);
             }
             if (!showing_override_suggestions) {
-                list_symbols (lang_serv, project, compilation, doc, pos, best_scope, completions, (new SymbolExtractor (pos, doc)).in_oce);
+                list_symbols (lang_serv, project, compilation, doc, pos, best_scope,
+                             completions, (new SymbolExtractor (pos, doc)).in_oce);
                 list_keywords (lang_serv, doc, nearest_symbol, in_loop, completions);
             }
             finish (client, id, completions);
@@ -186,8 +194,8 @@ namespace Vls.CompletionEngine {
         }
     }
 
-    void walk_up_current_scope (Server lang_serv, 
-                                Vala.SourceFile doc, Position pos, 
+    void walk_up_current_scope (Server lang_serv,
+                                Vala.SourceFile doc, Position pos,
                                 out Vala.Scope best_scope, out Vala.Symbol nearest_symbol,
                                 out Vala.Expression? nearest_with_expression,
                                 out bool in_loop) {
@@ -195,8 +203,8 @@ namespace Vls.CompletionEngine {
         in_loop = false;
         nearest_symbol = null;
         nearest_with_expression = null;
-        for (Vala.Scope? scope = best_scope; 
-             scope != null; 
+        for (Vala.Scope? scope = best_scope;
+             scope != null;
              scope = scope.parent_scope) {
             Vala.Symbol owner = scope.owner;
             if (owner.parent_node is Vala.WhileStatement ||
@@ -210,7 +218,7 @@ namespace Vls.CompletionEngine {
                 nearest_with_expression = ((Vala.WithStatement)owner.parent_node).expression;
 #endif
 
-            if (owner is Vala.Callable || owner is Vala.Statement || owner is Vala.Block || 
+            if (owner is Vala.Callable || owner is Vala.Statement || owner is Vala.Block ||
                 owner is Vala.Subroutine) {
                 if (owner is Vala.Method) {
                     if (nearest_symbol == null)
@@ -234,8 +242,8 @@ namespace Vls.CompletionEngine {
      */
     void list_symbols (Server lang_serv, Project project,
                        Compilation compilation,
-                       Vala.SourceFile doc, Position pos, 
-                       Vala.Scope best_scope, 
+                       Vala.SourceFile doc, Position pos,
+                       Vala.Scope best_scope,
                        Set<CompletionItem> completions,
                        bool in_oce) {
         string method = "textDocument/completion";
@@ -252,7 +260,7 @@ namespace Vls.CompletionEngine {
                 current_scope != null;
                 current_scope = current_scope.parent_scope) {
             Vala.Symbol owner = current_scope.owner;
-            if (owner is Vala.Callable || owner is Vala.Statement || owner is Vala.Block || 
+            if (owner is Vala.Callable || owner is Vala.Statement || owner is Vala.Block ||
                 owner is Vala.Subroutine) {
                 Vala.Parameter? this_param = null;
                 if (owner is Vala.Method)
@@ -269,13 +277,15 @@ namespace Vls.CompletionEngine {
                     Vala.DataType? base_type = null;
 
                     if (this_param.variable_type != null && this_param.variable_type.type_symbol is Vala.Class) {
-                        foreach (var class_base_type in ((Vala.Class)this_param.variable_type.type_symbol).get_base_types ())
+                        foreach (var class_base_type
+                                 in ((Vala.Class)this_param.variable_type.type_symbol).get_base_types ())
                             if (class_base_type.type_symbol is Vala.Class) {
                                 base_type = class_base_type;
                                 break;
                             }
                         instance_type_string = "class";
-                    } else if (this_param.variable_type != null && this_param.variable_type.type_symbol is Vala.Struct) {
+                    } else if (this_param.variable_type != null
+                               && this_param.variable_type.type_symbol is Vala.Struct) {
                         base_type = ((Vala.Struct)this_param.variable_type.type_symbol).base_type;
                         instance_type_string = "struct";
                     } else {
@@ -284,19 +294,18 @@ namespace Vls.CompletionEngine {
 
                     // add `this' parameter
                     completions.add (new CompletionItem.from_symbol (
-                                        null, 
-                                        this_param, 
+                                        null,
+                                        this_param,
                                         current_scope,
-                                        CompletionItemKind.Keyword, 
+                                        CompletionItemKind.Keyword,
                                         new DocComment (@"Access the current instance of this $instance_type_string")));
 
                     // add `base` parameter if this is a subtype
                     if (base_type != null) {
-                        completions.add (new CompletionItem.from_synthetic_symbol (base_type,
-                                                                                   "base",
-                                                                                   current_scope,
-                                                                                   CompletionItemKind.Keyword,
-                                                                                   new DocComment (@"Accesses the base $instance_type_string")));
+                        completions.add (new CompletionItem.from_synthetic_symbol
+                            (base_type, "base", current_scope,
+                             CompletionItemKind.Keyword,
+                             new DocComment (@"Accesses the base $instance_type_string")));
                     }
                 }
                 var symtab = current_scope.get_symbol_table ();
@@ -325,16 +334,23 @@ namespace Vls.CompletionEngine {
                     inside_static_or_class_construct_block = true;
             } else if (owner is Vala.TypeSymbol) {
                 if (in_instance)
-                    add_completions_for_type (lang_serv, project, code_style, Vala.SemanticAnalyzer.get_data_type_for_symbol (owner), (Vala.TypeSymbol) owner, completions, best_scope, in_oce, false, seen_props);
+                    add_completions_for_type (lang_serv, project, code_style,
+                                              Vala.SemanticAnalyzer.get_data_type_for_symbol (owner),
+                                              (Vala.TypeSymbol) owner, completions,
+                                              best_scope, in_oce, false, seen_props);
                 // always show static members
-                add_completions_for_type (lang_serv, project, code_style, null, (Vala.TypeSymbol) owner, completions, best_scope, in_oce, false, seen_props);
+                add_completions_for_type (lang_serv, project, code_style,
+                                          null, (Vala.TypeSymbol) owner, completions,
+                                          best_scope, in_oce, false, seen_props);
                 // suggest class members to implicitly access
                 if ((in_instance || inside_static_or_class_construct_block) && owner is Vala.Class)
-                    add_completions_for_class_access (lang_serv, project, code_style, (Vala.Class) owner, best_scope, completions);
+                    add_completions_for_class_access (lang_serv, project, code_style,
+                                                      (Vala.Class) owner, best_scope, completions);
                 // once we leave a type symbol, we're no longer in an instance
                 in_instance = false;
             } else if (owner is Vala.Namespace) {
-                add_completions_for_ns (lang_serv, project, code_style, (Vala.Namespace) owner, best_scope, completions, in_oce);
+                add_completions_for_ns (lang_serv, project, code_style,
+                                        (Vala.Namespace) owner, best_scope, completions, in_oce);
             } else {
                 debug (@"[$method] ignoring owner ($owner) ($(owner.type_name)) of scope");
             }
@@ -342,7 +358,9 @@ namespace Vls.CompletionEngine {
         // show members of all imported namespaces
         foreach (var ud in doc.current_using_directives) {
             if (ud.namespace_symbol is Vala.Namespace)
-                add_completions_for_ns (lang_serv, project, code_style, (Vala.Namespace) ud.namespace_symbol, best_scope, completions, in_oce);
+                add_completions_for_ns (lang_serv, project, code_style,
+                                        (Vala.Namespace) ud.namespace_symbol,
+                                        best_scope, completions, in_oce);
         }
     }
 
@@ -350,8 +368,8 @@ namespace Vls.CompletionEngine {
      * Fill the completion list with keywords.
      */
     void list_keywords (Server lang_serv,
-                        Vala.SourceFile doc, 
-                        Vala.Symbol? nearest_symbol, bool in_loop, 
+                        Vala.SourceFile doc,
+                        Vala.Symbol? nearest_symbol, bool in_loop,
                         Set<CompletionItem> completions) {
         if (nearest_symbol is Vala.TypeSymbol) {
             completions.add_all_array({
@@ -397,7 +415,8 @@ namespace Vls.CompletionEngine {
                 new CompletionItem.keyword ("else if", "else if (${1:<condition>})$0"),
                 new CompletionItem.keyword ("finally", "finally {$1}$0"),
                 new CompletionItem.keyword ("false"),
-                new CompletionItem.keyword ("for", "for (${3:var} ${1:i} = ${2:<expression>}; ${4:<condition>}; ${5:<expression>})$0"),
+                new CompletionItem.keyword ("for",
+                    "for (${3:var} ${1:i} = ${2:<expression>}; ${4:<condition>}; ${5:<expression>})$0"),
                 new CompletionItem.keyword ("foreach", "foreach (${3:var} ${1:item} in ${2:<expression>})$0"),
                 new CompletionItem.keyword ("if", "if (${1:<condition>})$0"),
                 new CompletionItem.keyword ("in", "in ${1:<expression>}$0"),
@@ -420,7 +439,7 @@ namespace Vls.CompletionEngine {
 
         if (nearest_symbol == Vala.CodeContext.get ().root)
             completions.add (new CompletionItem.keyword ("using", "using ${1:<namespace>};$0"));
-        
+
         if (in_loop) {
             completions.add_all_array ({
                 new CompletionItem.keyword ("break"),
@@ -453,7 +472,7 @@ namespace Vls.CompletionEngine {
 
             if (sym is Vala.Property)
                 kind = CompletionItemKind.Property;
-            
+
             var label = new StringBuilder ();
             var insert_text = new StringBuilder ();
 
@@ -483,7 +502,7 @@ namespace Vls.CompletionEngine {
                 return_type = ((Vala.Callable)sym).return_type.get_actual_type (instance_type, null, null);
             else if (sym is Vala.Property)
                 return_type = ((Vala.Property)sym).property_type.get_actual_type (instance_type, null, null);
-            
+
             if (return_type != null) {
                 string? return_type_representation = CodeHelp.get_data_type_representation (return_type, scope);
                 label.append (return_type_representation);
@@ -504,7 +523,7 @@ namespace Vls.CompletionEngine {
                     type_parameters = ((Vala.Delegate)sym).get_type_parameters ();
                 else if (sym is Vala.Method)
                     type_parameters = ((Vala.Method)sym).get_type_parameters ();
-                
+
                 if (type_parameters != null && !type_parameters.is_empty) {
                     label.append_c ('<');
                     insert_text.append_c ('<');
@@ -532,7 +551,9 @@ namespace Vls.CompletionEngine {
                         insert_text.append (", ");
                         label.append (", ");
                     }
-                    insert_text.append (CodeHelp.get_symbol_representation (instance_type, param, scope, false, null, "${" + @"$i:$(param.name)}"));
+                    insert_text.append (CodeHelp.get_symbol_representation
+                        (instance_type, param, scope, false, null,
+                         "${" + @"$i:$(param.name)}"));
                     label.append (CodeHelp.get_symbol_representation (instance_type, param, scope, false));
                     i++;
                 }
@@ -544,7 +565,8 @@ namespace Vls.CompletionEngine {
                 insert_text.append (" {");
                 int count = 1;
                 if (prop.get_accessor != null) {
-                    if (prop.get_accessor.value_type is Vala.ReferenceType && prop.get_accessor.value_type.value_owned) {
+                    if (prop.get_accessor.value_type is Vala.ReferenceType
+                        && prop.get_accessor.value_type.value_owned) {
                         label.append (" owned");
                         insert_text.append (" owned");
                     }
@@ -553,7 +575,8 @@ namespace Vls.CompletionEngine {
                     count++;
                 }
                 if (prop.set_accessor != null) {
-                    if (prop.set_accessor.value_type is Vala.ReferenceType && prop.set_accessor.value_type.value_owned) {
+                    if (prop.set_accessor.value_type is Vala.ReferenceType
+                        && prop.set_accessor.value_type.value_owned) {
                         label.append (" owned");
                         insert_text.append (" owned");
                     }
@@ -576,7 +599,7 @@ namespace Vls.CompletionEngine {
 
             completions.add (
                 new CompletionItem.from_unimplemented_symbol (
-                    sym, label.str, kind, final_insert_text, 
+                    sym, label.str, kind, final_insert_text,
                     lang_serv.get_symbol_documentation (project, sym)
                 ));
         }
@@ -608,9 +631,9 @@ namespace Vls.CompletionEngine {
                 for (var cm_scope = current_scope; cm_scope != null && cm == null; cm_scope = cm_scope.parent_scope)
                     cm = cm_scope.owner as Vala.CreationMethod;
                 is_cm_this_or_base_access = cm != null &&
-                    (result is Vala.BaseAccess || 
-                        result is Vala.MemberAccess && 
-                            ((Vala.MemberAccess)result).member_name == "this" && 
+                    (result is Vala.BaseAccess ||
+                        result is Vala.MemberAccess &&
+                            ((Vala.MemberAccess)result).member_name == "this" &&
                             ((Vala.MemberAccess)result).inner == null);
             } else if (result is Vala.Symbol) {
                 symbol = (Vala.Symbol) result;
@@ -619,17 +642,28 @@ namespace Vls.CompletionEngine {
             if (data_type != null && data_type.type_symbol != null &&
                 (data_type is Vala.PointerType == is_pointer_access) &&
                 (!in_oce || !(is_null_safe_access || is_pointer_access)))
-                add_completions_for_type (lang_serv, project, code_style, data_type, data_type.type_symbol, completions, current_scope, in_oce, is_cm_this_or_base_access);
+                add_completions_for_type (lang_serv, project, code_style,
+                                          data_type, data_type.type_symbol,
+                                          completions, current_scope, in_oce,
+                                          is_cm_this_or_base_access);
             else if (symbol is Vala.Signal && !(is_null_safe_access || is_pointer_access))
                 add_completions_for_signal (code_style, data_type, (Vala.Signal) symbol, current_scope, completions);
             else if (symbol is Vala.Namespace && !(is_null_safe_access || is_pointer_access))
-                add_completions_for_ns (lang_serv, project, code_style, (Vala.Namespace) symbol, current_scope, completions, in_oce);
-            else if (symbol is Vala.Method && ((Vala.Method) symbol).coroutine && !(is_null_safe_access || is_pointer_access))
-                add_completions_for_async_method (code_style, data_type, (Vala.Method) symbol, current_scope, completions);
+                add_completions_for_ns (lang_serv, project, code_style,
+                                        (Vala.Namespace) symbol,
+                                        current_scope, completions, in_oce);
+            else if (symbol is Vala.Method && ((Vala.Method) symbol).coroutine
+                     && !(is_null_safe_access || is_pointer_access))
+                add_completions_for_async_method (code_style, data_type,
+                                                  (Vala.Method) symbol,
+                                                  current_scope, completions);
             else if (data_type is Vala.ArrayType && !is_pointer_access)
                 add_completions_for_array_type (code_style, (Vala.ArrayType) data_type, current_scope, completions);
             else if (symbol is Vala.TypeSymbol && !(is_null_safe_access || is_pointer_access))
-                add_completions_for_type (lang_serv, project, code_style, null, (Vala.TypeSymbol)symbol, completions, current_scope, in_oce, is_cm_this_or_base_access);
+                add_completions_for_type (lang_serv, project, code_style,
+                                          null, (Vala.TypeSymbol)symbol,
+                                          completions, current_scope, in_oce,
+                                          is_cm_this_or_base_access);
             else {
                 if (result is Vala.MemberAccess &&
                     ((Vala.MemberAccess)result).inner != null &&
@@ -691,7 +725,7 @@ namespace Vls.CompletionEngine {
             Vala.CodeContext.pop ();
             return;
         }
-        
+
         bool in_oce = false;
 
         foreach (var res in fs.result) {
@@ -700,7 +734,9 @@ namespace Vls.CompletionEngine {
         }
 
         Vala.CodeNode result = Server.get_best (fs, doc);
-        show_members (lang_serv, project, doc, compilation, is_null_safe_access, is_pointer_access, in_oce, result, null, completions);
+        show_members (lang_serv, project, doc, compilation,
+                      is_null_safe_access, is_pointer_access, in_oce,
+                      result, null, completions);
         Vala.CodeContext.pop ();
     }
 
@@ -727,7 +763,8 @@ namespace Vls.CompletionEngine {
         } else /* if (!is_instance) */ {
             // for non-instance object symbols, only show static methods
             // for non-instance struct symbols, show static methods and creation methods
-            if (!(type_symbol is Vala.Struct && method_sym is Vala.CreationMethod) && method_sym.binding != Vala.MemberBinding.STATIC)
+            if (!(type_symbol is Vala.Struct && method_sym is Vala.CreationMethod)
+                && method_sym.binding != Vala.MemberBinding.STATIC)
                 return false;
         }
         // check whether the symbol is accessible
@@ -779,12 +816,14 @@ namespace Vls.CompletionEngine {
             }
             builder.append (symbol_override ?? callable_sym.parent_symbol.name);
 
-            if (callable_sym.parent_symbol is Vala.ObjectTypeSymbol && ((Vala.ObjectTypeSymbol) callable_sym.parent_symbol).has_type_parameters ()) {
+            if (callable_sym.parent_symbol is Vala.ObjectTypeSymbol
+                && ((Vala.ObjectTypeSymbol) callable_sym.parent_symbol).has_type_parameters ()) {
                 uint num_parameters = callable_sym.get_parameters ().size;
 
                 builder.append_c ('<');
                 uint p = 0;
-                foreach (var type_parameter in ((Vala.ObjectTypeSymbol) callable_sym.parent_symbol).get_type_parameters ()) {
+                foreach (var type_parameter
+                         in ((Vala.ObjectTypeSymbol) callable_sym.parent_symbol).get_type_parameters ()) {
                     if (p > 0)
                         builder.append (", ");
                     builder.append_printf ("${%u:%s}", num_parameters + p + 1, type_parameter.name);
@@ -822,7 +861,9 @@ namespace Vls.CompletionEngine {
                 builder.append ("out ");
             else if (parameter.direction == Vala.ParameterDirection.REF)
                 builder.append ("ref ");
-            builder.append_printf ("${%u:%s}", p + 1, CodeHelp.get_symbol_representation (type, parameter, current_scope, false, null, null, false, false, null, false));
+            builder.append_printf ("${%u:%s}", p + 1,
+                CodeHelp.get_symbol_representation (type, parameter, current_scope,
+                    false, null, null, false, false, null, false));
             p++;
         };
 
@@ -846,9 +887,9 @@ namespace Vls.CompletionEngine {
      */
     void add_completions_for_type (Server lang_serv, Project project,
                                    CodeStyleAnalyzer? code_style,
-                                   Vala.DataType? type, 
+                                   Vala.DataType? type,
                                    Vala.TypeSymbol type_symbol,
-                                   Set<CompletionItem> completions, 
+                                   Set<CompletionItem> completions,
                                    Vala.Scope current_scope,
                                    bool in_oce,
                                    bool is_cm_this_or_base_access,
@@ -877,9 +918,10 @@ namespace Vls.CompletionEngine {
                         is_cm_this_or_base_access))
                     continue;
                 var completion = new CompletionItem.from_symbol (type, method_sym, current_scope,
-                    (method_sym is Vala.CreationMethod) ? CompletionItemKind.Constructor : CompletionItemKind.Method, 
+                    (method_sym is Vala.CreationMethod) ? CompletionItemKind.Constructor : CompletionItemKind.Method,
                     lang_serv.get_symbol_documentation (project, method_sym));
-                completion.insertText = generate_insert_text_for_callable (type, method_sym, current_scope, method_spaces);
+                completion.insertText = generate_insert_text_for_callable
+                    (type, method_sym, current_scope, method_spaces);
                 completion.insertTextFormat = InsertTextFormat.Snippet;
                 completions.add (completion);
             }
@@ -890,23 +932,29 @@ namespace Vls.CompletionEngine {
                         || field_sym.is_instance_member () != is_instance
                         || !CodeHelp.is_symbol_accessible (field_sym, current_scope))
                         continue;
-                    completions.add (new CompletionItem.from_symbol (type, field_sym, current_scope, CompletionItemKind.Field, lang_serv.get_symbol_documentation (project, field_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, field_sym, current_scope,
+                         CompletionItemKind.Field,
+                         lang_serv.get_symbol_documentation (project, field_sym)));
                 }
             }
 
             if (!in_oce && is_instance) {
                 foreach (var signal_sym in object_sym.get_signals ()) {
-                    if (signal_sym.is_instance_member () != is_instance 
+                    if (signal_sym.is_instance_member () != is_instance
                         || !CodeHelp.is_symbol_accessible (signal_sym, current_scope))
                         continue;
                     // generate one completion for invoking the signal and another without, for member access
-                    completions.add (new CompletionItem.from_symbol (type, signal_sym, current_scope, CompletionItemKind.Event, lang_serv.get_symbol_documentation (project, signal_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, signal_sym, current_scope,
+                         CompletionItemKind.Event,
+                         lang_serv.get_symbol_documentation (project, signal_sym)));
                     var emitter_documentation = lang_serv.get_symbol_documentation (project, signal_sym);
                     if (emitter_documentation != null)
                         emitter_documentation.body = "_(Invokes this signal)_\n\n" + emitter_documentation.body;
-                    completions.add (new CompletionItem.from_symbol (type, signal_sym, 
-                                                                     current_scope, 
-                                                                     CompletionItemKind.Method, 
+                    completions.add (new CompletionItem.from_symbol (type, signal_sym,
+                                                                     current_scope,
+                                                                     CompletionItemKind.Method,
                                                                      emitter_documentation) {
                         insertText = generate_insert_text_for_callable (type, signal_sym, current_scope, method_spaces),
                         insertTextFormat = InsertTextFormat.Snippet
@@ -917,7 +965,10 @@ namespace Vls.CompletionEngine {
                     if (prop_sym.is_instance_member () != is_instance
                         || !CodeHelp.is_symbol_accessible (prop_sym, current_scope))
                         continue;
-                    completions.add (new CompletionItem.from_symbol (type, prop_sym, current_scope, CompletionItemKind.Property, lang_serv.get_symbol_documentation (project, prop_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, prop_sym, current_scope,
+                         CompletionItemKind.Property,
+                         lang_serv.get_symbol_documentation (project, prop_sym)));
                     seen_props.add (prop_sym.name);
                 }
             }
@@ -927,26 +978,42 @@ namespace Vls.CompletionEngine {
                 foreach (var constant_sym in object_sym.get_constants ()) {
                     if (!CodeHelp.is_symbol_accessible (constant_sym, current_scope))
                         continue;
-                    completions.add (new CompletionItem.from_symbol (type, constant_sym, current_scope, CompletionItemKind.Constant, lang_serv.get_symbol_documentation (project, constant_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, constant_sym, current_scope,
+                         CompletionItemKind.Constant,
+                         lang_serv.get_symbol_documentation (project, constant_sym)));
                 }
 
                 foreach (var enum_sym in object_sym.get_enums ())
-                    completions.add (new CompletionItem.from_symbol (type, enum_sym, current_scope, CompletionItemKind.Enum, lang_serv.get_symbol_documentation (project, enum_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, enum_sym, current_scope,
+                         CompletionItemKind.Enum,
+                         lang_serv.get_symbol_documentation (project, enum_sym)));
 
                 foreach (var delegate_sym in object_sym.get_delegates ())
-                    completions.add (new CompletionItem.from_symbol (type, delegate_sym, current_scope, CompletionItemKind.Interface, lang_serv.get_symbol_documentation (project, delegate_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, delegate_sym, current_scope,
+                         CompletionItemKind.Interface,
+                         lang_serv.get_symbol_documentation (project, delegate_sym)));
             }
 
             // if we're inside an OCE (which are treated as instances), get only inner types
             if (!is_instance || in_oce) {
                 foreach (var class_sym in object_sym.get_classes ())
-                    add_class_completion (lang_serv, project, code_style, class_sym, current_scope, in_oce, completions);
+                    add_class_completion (lang_serv, project, code_style,
+                                          class_sym, current_scope, in_oce, completions);
 
                 foreach (var iface_sym in object_sym.get_interfaces ())
-                    completions.add (new CompletionItem.from_symbol (type, iface_sym, current_scope, CompletionItemKind.Interface, lang_serv.get_symbol_documentation (project, iface_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, iface_sym, current_scope,
+                         CompletionItemKind.Interface,
+                         lang_serv.get_symbol_documentation (project, iface_sym)));
 
                 foreach (var struct_sym in object_sym.get_structs ())
-                    completions.add (new CompletionItem.from_symbol (type, struct_sym, current_scope, CompletionItemKind.Struct, lang_serv.get_symbol_documentation (project, struct_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, struct_sym, current_scope,
+                         CompletionItemKind.Struct,
+                         lang_serv.get_symbol_documentation (project, struct_sym)));
             }
 
             // get instance members of supertypes
@@ -976,7 +1043,8 @@ namespace Vls.CompletionEngine {
                     || !CodeHelp.is_symbol_accessible (method_sym, current_scope))
                     continue;
                 var completion = new CompletionItem.from_symbol (type, method_sym, current_scope, CompletionItemKind.Method, lang_serv.get_symbol_documentation (project, method_sym));
-                completion.insertText = generate_insert_text_for_callable (type, method_sym, current_scope, method_spaces);
+                completion.insertText = generate_insert_text_for_callable
+                    (type, method_sym, current_scope, method_spaces);
                 completion.insertTextFormat = InsertTextFormat.Snippet;
                 completions.add (completion);
             }
@@ -985,10 +1053,16 @@ namespace Vls.CompletionEngine {
                 foreach (var constant_sym in enum_sym.get_constants ()) {
                     if (!CodeHelp.is_symbol_accessible (constant_sym, current_scope))
                         continue;
-                    completions.add (new CompletionItem.from_symbol (type, constant_sym, current_scope, CompletionItemKind.Constant, lang_serv.get_symbol_documentation (project, constant_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, constant_sym, current_scope,
+                         CompletionItemKind.Constant,
+                         lang_serv.get_symbol_documentation (project, constant_sym)));
                 }
                 foreach (var value_sym in enum_sym.get_values ())
-                    completions.add (new CompletionItem.from_symbol (type, value_sym, current_scope, CompletionItemKind.EnumMember, lang_serv.get_symbol_documentation (project, value_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, value_sym, current_scope,
+                         CompletionItemKind.EnumMember,
+                         lang_serv.get_symbol_documentation (project, value_sym)));
             }
         } else if (type_symbol is Vala.ErrorDomain) {
             /**
@@ -1002,7 +1076,9 @@ namespace Vls.CompletionEngine {
                 // can also be used as pseudo-creation methods
                 if (code_sym.is_instance_member () != is_instance && !in_oce)
                     continue;
-                completions.add (new CompletionItem.from_symbol (type, code_sym, current_scope, CompletionItemKind.Value, lang_serv.get_symbol_documentation (project, code_sym)));
+                completions.add (new CompletionItem.from_symbol
+                    (type, code_sym, current_scope, CompletionItemKind.Value,
+                     lang_serv.get_symbol_documentation (project, code_sym)));
             }
 
             if (!in_oce) {
@@ -1010,8 +1086,11 @@ namespace Vls.CompletionEngine {
                     if (method_sym.is_instance_member () != is_instance
                         || !CodeHelp.is_symbol_accessible (method_sym, current_scope))
                         continue;
-                    var completion = new CompletionItem.from_symbol (type, method_sym, current_scope, CompletionItemKind.Method, lang_serv.get_symbol_documentation (project, method_sym));
-                    completion.insertText = generate_insert_text_for_callable (type, method_sym, current_scope, method_spaces);
+                    var completion = new CompletionItem.from_symbol
+                        (type, method_sym, current_scope, CompletionItemKind.Method,
+                         lang_serv.get_symbol_documentation (project, method_sym));
+                    completion.insertText = generate_insert_text_for_callable
+                        (type, method_sym, current_scope, method_spaces);
                     completion.insertTextFormat = InsertTextFormat.Snippet;
                     completions.add (completion);
                 }
@@ -1027,7 +1106,7 @@ namespace Vls.CompletionEngine {
                         warning ("GLib.Error not found");
                     else
                         add_completions_for_type (lang_serv, project, code_style,
-                            type, (Vala.TypeSymbol) gerror_sym, completions, 
+                            type, (Vala.TypeSymbol) gerror_sym, completions,
                             current_scope, in_oce, false, seen_props, seen_type_symbols);
                 } else
                     warning ("GLib not found");
@@ -1042,7 +1121,10 @@ namespace Vls.CompletionEngine {
                 // struct fields are always public
                 if (field_sym.is_instance_member () != is_instance)
                     continue;
-                completions.add (new CompletionItem.from_symbol (type, field_sym, current_scope, CompletionItemKind.Field, lang_serv.get_symbol_documentation (project, field_sym)));
+                completions.add (new CompletionItem.from_symbol
+                    (type, field_sym, current_scope,
+                     CompletionItemKind.Field,
+                     lang_serv.get_symbol_documentation (project, field_sym)));
             }
 
             foreach (var method_sym in struct_sym.get_methods ()) {
@@ -1054,7 +1136,8 @@ namespace Vls.CompletionEngine {
                         is_cm_this_or_base_access))
                     continue;
                 var completion = new CompletionItem.from_symbol (type, method_sym, current_scope, CompletionItemKind.Method, lang_serv.get_symbol_documentation (project, method_sym));
-                completion.insertText = generate_insert_text_for_callable (type, method_sym, current_scope, method_spaces);
+                completion.insertText = generate_insert_text_for_callable
+                    (type, method_sym, current_scope, method_spaces);
                 completion.insertTextFormat = InsertTextFormat.Snippet;
                 completions.add (completion);
             }
@@ -1063,21 +1146,32 @@ namespace Vls.CompletionEngine {
                 if (prop_sym.is_instance_member () != is_instance
                     || !CodeHelp.is_symbol_accessible (prop_sym, current_scope))
                     continue;
-                completions.add (new CompletionItem.from_symbol (type, prop_sym, current_scope, CompletionItemKind.Property, lang_serv.get_symbol_documentation (project, prop_sym)));
+                completions.add (new CompletionItem.from_symbol
+                    (type, prop_sym, current_scope, CompletionItemKind.Property,
+                     lang_serv.get_symbol_documentation (project, prop_sym)));
             }
 
             if (!is_instance) {
                 foreach (var constant_sym in struct_sym.get_constants ()) {
                     if (!CodeHelp.is_symbol_accessible (constant_sym, current_scope))
                         continue;
-                    completions.add (new CompletionItem.from_symbol (type, constant_sym, current_scope, CompletionItemKind.Constant, lang_serv.get_symbol_documentation (project, constant_sym)));
+                    completions.add (new CompletionItem.from_symbol
+                        (type, constant_sym, current_scope,
+                         CompletionItemKind.Constant,
+                         lang_serv.get_symbol_documentation (project, constant_sym)));
                 }
             }
         } else if (type_symbol is Vala.TypeParameter) {
             var typeparam_sym = (Vala.TypeParameter) type_symbol;
             var generic_type = new Vala.GenericType (typeparam_sym);
-            completions.add (new CompletionItem.from_symbol (type, generic_type.get_member ("dup"), current_scope, CompletionItemKind.Field, new DocComment (@"a function that knows how to duplicate instances of $(typeparam_sym.name)")));
-            completions.add (new CompletionItem.from_symbol (type, generic_type.get_member ("destroy"), current_scope, CompletionItemKind.Field, new DocComment (@"a function that knows how to destroy instances of $(typeparam_sym.name)")));
+            completions.add (new CompletionItem.from_symbol
+                (type, generic_type.get_member ("dup"), current_scope,
+                 CompletionItemKind.Field,
+                 new DocComment (@"a function that knows how to duplicate instances of $(typeparam_sym.name)")));
+            completions.add (new CompletionItem.from_symbol
+                (type, generic_type.get_member ("destroy"), current_scope,
+                 CompletionItemKind.Field,
+                 new DocComment (@"a function that knows how to destroy instances of $(typeparam_sym.name)")));
         } else {
             warning (@"other type symbol $type_symbol.\n");
         }
@@ -1090,7 +1184,7 @@ namespace Vls.CompletionEngine {
         uint method_spaces = code_style != null ? code_style.average_spacing_before_parens : 1;
         foreach (var class_sym in ns.get_classes ())
             add_class_completion (lang_serv, project, code_style, class_sym, scope, in_oce, completions);
-        // this is outside of the OCE check because while we cannot create new instances of 
+        // this is outside of the OCE check because while we cannot create new instances of
         // raw interfaces, it's possible for interfaces to contain instantiable types declared inside,
         // so that we would call `new Iface.Thing ()'
         foreach (var iface_sym in ns.get_interfaces ())
@@ -1118,7 +1212,7 @@ namespace Vls.CompletionEngine {
                 completions.add (new CompletionItem.from_symbol (null, field_sym, scope, CompletionItemKind.Field, lang_serv.get_symbol_documentation (project, field_sym)));
         }
     }
-    
+
     /**
      * Use this to complete members of a signal.
      */
@@ -1126,7 +1220,7 @@ namespace Vls.CompletionEngine {
         uint method_spaces = code_style != null ? code_style.average_spacing_before_parens : 1;
         var sig_type = new Vala.SignalType (sig);
         completions.add_all_array (new CompletionItem []{
-            new CompletionItem.from_symbol (instance_type, sig_type.get_member ("connect"), scope, CompletionItemKind.Method, 
+            new CompletionItem.from_symbol (instance_type, sig_type.get_member ("connect"), scope, CompletionItemKind.Method,
                 new DocComment ("Connect to signal")) {
                 insertText = generate_insert_text_for_callable (instance_type, sig_type.get_member ("connect") as Vala.Method, scope, method_spaces),
                 insertTextFormat = InsertTextFormat.Snippet
@@ -1154,10 +1248,10 @@ namespace Vls.CompletionEngine {
         if (length_member != null)
             completions.add (new CompletionItem.from_symbol (
                 atype,
-                length_member, 
+                length_member,
                 scope,
                 CompletionItemKind.Property,
-                (atype.fixed_length && atype.length != null ? 
+                (atype.fixed_length && atype.length != null ?
                     new DocComment (@"(= $(CodeHelp.get_code_node_source (atype.length)))") : null)));
         foreach (string method_name in new string[] {"copy", "move", "resize"}) {
             var method = atype.get_member (method_name);

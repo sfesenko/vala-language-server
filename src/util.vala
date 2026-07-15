@@ -358,7 +358,7 @@ namespace Vls.Util {
         }
     }
 
-    public ArrayList<File> find_files (File dir, Regex basename_pattern, 
+    public ArrayList<File> find_files (File dir, Regex basename_pattern,
                                        uint max_depth = 1, Cancellable? cancellable = null,
                                        ArrayList<File> found = new ArrayList<File> ()) throws Error {
         assert (max_depth >= 1);

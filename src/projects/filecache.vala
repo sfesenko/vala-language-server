@@ -63,7 +63,7 @@ class Vls.FileCache : Object {
             // MD5 is fastest and we don't have any security issues even if there are collisions
             this.checksum = Checksum.compute_for_bytes (ChecksumType.MD5, data);
         }
-        
+
         /**
          * Create a new content status for an empty/non-existent file.
          */
@@ -103,7 +103,7 @@ class Vls.FileCache : Object {
 #endif
             file_exists = true;
         } catch (IOError.NOT_FOUND e) {
-            // we only want to catch file-not-found errors. if there was some other error 
+            // we only want to catch file-not-found errors. if there was some other error
             // with querying the file system, we want to exit this function
         }
 

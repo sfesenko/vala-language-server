@@ -19,7 +19,7 @@
 using Gee;
 
 /**
- * A backend for `compile_commands.json` files. 
+ * A backend for `compile_commands.json` files.
  */
 class Vls.CcProject : Project {
     private bool build_files_have_changed = true;
@@ -50,17 +50,17 @@ class Vls.CcProject : Project {
         Json.Node? cc_json_root = parser.get_root ();
 
         if (cc_json_root == null)
-            throw new ProjectError.INTROSPECTION (@"JSON root is null. Bailing out!");
+            throw new ProjectError.INTROSPECTION ("JSON root is null. Bailing out!");
 
         // iterate over all compile commands
         int i = -1;
         foreach (Json.Node cc_node in cc_json_root.get_array ().get_elements ()) {
             i++;
             if (cc_node.get_node_type () != Json.NodeType.OBJECT)
-                throw new ProjectError.INTROSPECTION (@"JSON node is not an object. Bailing out!");
+                throw new ProjectError.INTROSPECTION ("JSON node is not an object. Bailing out!");
             var cc = Json.gobject_deserialize (typeof (CompileCommand), cc_node) as CompileCommand?;
             if (cc == null)
-                throw new ProjectError.INTROSPECTION (@"JSON node is null. Bailing out!");
+                throw new ProjectError.INTROSPECTION ("JSON node is null. Bailing out!");
 
             if (cc.command.length == 0) {
                 warning ("CC#%d has empty command list", i);
@@ -73,7 +73,7 @@ class Vls.CcProject : Project {
                                                     new string[]{}, new string[]{}, new string[]{}));
             else
                 build_targets.add (new BuildTask (file_cache, cc.directory, cc.directory, cc.file ?? @"CC#$i", @"CC#$i", i,
-                                                  cc.command[0:1], cc.command[1:cc.command.length], 
+                                                  cc.command[0:1], cc.command[1:cc.command.length],
                                                   new string[]{}, new string[]{},
                                                   new string[]{}, "unknown"));
         }

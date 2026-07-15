@@ -193,9 +193,9 @@ namespace Lsp {
      * the new text is considered to be the full content of the document.
      */
     class TextDocumentContentChangeEvent : Object {
-        public Range? range    { get; set; }
+        public Range? range { get; set; }
         public int rangeLength { get; set; }
-        public string text     { get; set; }
+        public string text { get; set; }
     }
 
     enum MessageType {
@@ -288,8 +288,9 @@ namespace Lsp {
             owned get {
                 if (_initial_range == null)
                     _initial_range = new Range.from_sourceref (children.first ()._source_reference);
-                
-                return children.fold<Range> ((child, current_range) => current_range.union (child.range), _initial_range);
+
+                return children.fold<Range> ((child, current_range) =>
+                    current_range.union (child.range), _initial_range);
             }
         }
         public Range selectionRange { get; set; }
@@ -311,7 +312,8 @@ namespace Lsp {
                 // debug ("subroutine %s found (body @ %s)", sym.get_full_name (),
                 //         body_sref != null ? body_sref.to_string () : null);
                 if (body_sref != null && (body_sref.begin.line < body_sref.end.line ||
-                                          body_sref.begin.line == body_sref.end.line && body_sref.begin.pos <= body_sref.end.pos)) {
+                                          body_sref.begin.line == body_sref.end.line
+                                          && body_sref.begin.pos <= body_sref.end.pos)) {
                     this._initial_range = this._initial_range.union (new Range.from_sourceref (body_sref));
                 }
             }
@@ -433,20 +435,20 @@ namespace Lsp {
     [CCode (default_value = "LSP_COMPLETION_TRIGGER_KIND_Invoked")]
     enum CompletionTriggerKind {
         /**
-	     * Completion was triggered by typing an identifier (24x7 code
-	     * complete), manual invocation (e.g Ctrl+Space) or via API.
-	     */
+         * Completion was triggered by typing an identifier (24x7 code
+         * complete), manual invocation (e.g Ctrl+Space) or via API.
+         */
         Invoked = 1,
 
         /**
-	     * Completion was triggered by a trigger character specified by
-	     * the `triggerCharacters` properties of the `CompletionRegistrationOptions`.
-	     */
+         * Completion was triggered by a trigger character specified by
+         * the `triggerCharacters` properties of the `CompletionRegistrationOptions`.
+         */
         TriggerCharacter = 2,
 
         /**
-	     * Completion was re-triggered as the current completion list is incomplete.
-	     */
+         * Completion was re-triggered as the current completion list is incomplete.
+         */
         TriggerForIncompleteCompletions = 3
     }
 
@@ -476,13 +478,13 @@ namespace Lsp {
         PlainText = 1,
 
         /**
-    	 * The primary text to be inserted is treated as a snippet.
-    	 *
-    	 * A snippet can define tab stops and placeholders with `$1`, `$2`
-    	 * and `${3:foo}`. `$0` defines the final tab stop, it defaults to
-    	 * the end of the snippet. Placeholders with equal identifiers are linked,
-    	 * that is typing in one will update others too.
-    	 */
+         * The primary text to be inserted is treated as a snippet.
+         *
+         * A snippet can define tab stops and placeholders with `$1`, `$2`
+         * and `${3:foo}`. `$0` defines the final tab stop, it defaults to
+         * the end of the snippet. Placeholders with equal identifiers are linked,
+         * that is typing in one will update others too.
+         */
         Snippet = 2,
     }
 
@@ -512,7 +514,7 @@ namespace Lsp {
 
         /**
          * A completion suggestion from an existing Vala symbol.
-         * 
+         *
          * @param instance_type the parent data type of data type of the expression where this symbol appears, or null
          * @param sym the symbol itself
          * @param scope the scope to display this in
@@ -524,14 +526,16 @@ namespace Lsp {
             CompletionItemKind kind, Vls.DocComment? documentation, string? label_override = null) {
             this.label = label_override ?? sym.name;
             this.kind = kind;
-            this.detail = Vls.CodeHelp.get_symbol_representation (instance_type, sym, scope, true, null, label_override, false);
+            this.detail = Vls.CodeHelp.get_symbol_representation
+                (instance_type, sym, scope, true, null, label_override, false);
             this._hash = @"$label $kind".hash ();
 
             if (documentation != null)
                 this.documentation = new MarkupContent.from_markdown (documentation.body);
 
             var version = sym.get_attribute ("Version");
-            if (version != null && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
+            if (version != null
+                && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
                 this.tags.add (CompletionItemTag.Deprecated);
                 this.deprecated = true;
             }
@@ -550,14 +554,15 @@ namespace Lsp {
                                                      CompletionItemKind kind, Vls.DocComment? documentation) {
             this.label = symbol_name;
             this.kind = kind;
-            this.detail = @"$(Vls.CodeHelp.get_symbol_representation (symbol_type, null, scope, true, null, null, false)) $symbol_name";
+            this.detail = @"$(Vls.CodeHelp.get_symbol_representation
+                (symbol_type, null, scope, true, null, null, false)) $symbol_name";
             this._hash = @"$label $kind".hash ();
 
             if (documentation != null)
                 this.documentation = new MarkupContent.from_markdown (documentation.body);
         }
 
-        public CompletionItem.from_unimplemented_symbol (Vala.Symbol sym, 
+        public CompletionItem.from_unimplemented_symbol (Vala.Symbol sym,
                                                          string label, CompletionItemKind kind,
                                                          string insert_text,
                                                          Vls.DocComment? documentation) {
@@ -634,7 +639,7 @@ namespace Lsp {
             this.value = doc;
         }
     }
-    
+
     [CCode (default_value = "LSP_COMPLETION_ITEM_KIND_Text")]
     enum CompletionItemKind {
         Text = 1,
@@ -663,7 +668,7 @@ namespace Lsp {
         Operator = 24,
         TypeParameter = 25
     }
-    
+
     /**
      * Capabilities of the client/editor for `textDocument/documentSymbol`
      */
@@ -704,7 +709,8 @@ namespace Lsp {
         public string label { get; set; }
         public MarkupContent documentation { get; set; }
 
-        public Gee.List<ParameterInformation> parameters { get; private set; default = new Gee.LinkedList<ParameterInformation> (); }
+        public Gee.List<ParameterInformation> parameters { get; private set;
+            default = new Gee.LinkedList<ParameterInformation> (); }
 
         public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
             base.set_property (pspec.get_name (), value);
@@ -737,7 +743,8 @@ namespace Lsp {
     }
 
     class SignatureHelp : Object, Json.Serializable {
-        public Gee.Collection<SignatureInformation> signatures { get; set; default = new Gee.ArrayList<SignatureInformation> (); }
+        public Gee.Collection<SignatureInformation> signatures { get; set;
+            default = new Gee.ArrayList<SignatureInformation> (); }
         public int activeSignature { get; set; }
         public int activeParameter { get; set; }
 
@@ -828,7 +835,7 @@ namespace Lsp {
         }
     }
 
-    /** 
+    /**
      * Describes textual changes on a single text document. The text document is
      * referred to as a {@link VersionedTextDocumentIdentifier} to allow clients to
      * check the text document version before an edit is applied. A
@@ -855,7 +862,7 @@ namespace Lsp {
         public Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "edits")
                 return default_serialize_property (property_name, value, pspec);
-            
+
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
@@ -898,7 +905,8 @@ namespace Lsp {
             if (property_name == "arguments") {
                 value = Value (typeof (Array));
                 if (property_node.get_node_type () != Json.NodeType.ARRAY) {
-                    warning ("unexpected property node type for 'arguments' %s", property_node.get_node_type ().to_string ());
+                    warning ("unexpected property node type for 'arguments' %s",
+                             property_node.get_node_type ().to_string ());
                     return false;
                 }
 
@@ -918,7 +926,8 @@ namespace Lsp {
                 // workaround for json-glib < 1.5.2 (Ubuntu 20.04 / eOS 6)
                 if (property_node.get_value_type () != typeof (string)) {
                     value = "";
-                    warning ("unexpected property node type for 'commands' %s", property_node.get_node_type ().to_string ());
+                    warning ("unexpected property node type for 'commands' %s",
+                             property_node.get_node_type ().to_string ());
                     return false;
                 }
 
@@ -969,7 +978,7 @@ namespace Lsp {
          */
         public Command? command { get; set; }
     }
-    
+
     class DocumentRangeFormattingParams : Object {
         public TextDocumentIdentifier textDocument { get; set; }
         public Range? range { get; set; }
@@ -1095,7 +1104,8 @@ namespace Lsp {
                 this.kind = SymbolKind.Method;
             }
             var version = symbol.get_attribute ("Version");
-            if (version != null && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
+            if (version != null
+                && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
                 this.tags |= SymbolTags.DEPRECATED;
             }
             this.detail = Vls.CodeHelp.get_symbol_representation (null, symbol, null, true);
@@ -1104,7 +1114,8 @@ namespace Lsp {
             if (symbol.comment != null)
                 this.range = new Range.from_sourceref (symbol.comment.source_reference).union (this.range);
             if (symbol is Vala.Subroutine && ((Vala.Subroutine)symbol).body != null)
-                this.range = new Range.from_sourceref (((Vala.Subroutine)symbol).body.source_reference).union (this.range);
+                this.range = new Range.from_sourceref
+                    (((Vala.Subroutine)symbol).body.source_reference).union (this.range);
             this.selectionRange = new Range.from_sourceref (symbol.source_reference);
         }
     }
@@ -1236,7 +1247,8 @@ namespace Lsp {
             }
 
             var version = symbol.get_attribute ("Version");
-            if (version != null && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
+            if (version != null
+                && (version.get_bool ("deprecated") || version.get_string ("deprecated_since") != null)) {
                 this.tags |= SymbolTags.DEPRECATED;
             }
             this.detail = Vls.CodeHelp.get_symbol_representation (null, symbol, null, true);

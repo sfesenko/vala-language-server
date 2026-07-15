@@ -60,7 +60,7 @@ class Vls.NodeSearch : Vala.CodeVisitor {
         }
 
         if (filter != null) {
-            if (!include_declaration && 
+            if (!include_declaration &&
                 (needle == node && !(needle is Vala.LocalVariable) || node.parent_node is Vala.DeclarationStatement))
                 return false;
             return filter (needle, node);
@@ -101,7 +101,7 @@ class Vls.NodeSearch : Vala.CodeVisitor {
      * TODO: are children of a CodeNode guaranteed to have a source_reference within the parent?
      * if so, this can be much faster
      */
-    public NodeSearch (Vala.SourceFile file, Position pos, 
+    public NodeSearch (Vala.SourceFile file, Position pos,
                        bool search_multiline = false,
                        Position? end_pos = null,
                        bool must_be_symbol = true) {
@@ -126,7 +126,7 @@ class Vls.NodeSearch : Vala.CodeVisitor {
         this.visit_source_file (file);
     }
 
-    public NodeSearch.with_filter (Vala.SourceFile file, Vala.CodeNode needle, Filter filter_func, 
+    public NodeSearch.with_filter (Vala.SourceFile file, Vala.CodeNode needle, Filter filter_func,
                                    bool include_declaration = true) {
         this.file = file;
         this.needle = needle;
@@ -290,7 +290,7 @@ class Vls.NodeSearch : Vala.CodeVisitor {
             result.add (stmt);
         stmt.accept_children (this);
     }
-    
+
     public override void visit_destructor (Vala.Destructor dtor) {
         if (!seen.add (dtor)) return;
         if (this.match (dtor))

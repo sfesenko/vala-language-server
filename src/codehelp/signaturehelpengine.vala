@@ -39,9 +39,7 @@ namespace Vls.SignatureHelpEngine {
         // debug ("[%s] extracting expression ...", method);
         var se = new SymbolExtractor (pos, doc, compilation.code_context);
         if (se.extracted_expression != null) {
-#if !VALA_FEATURE_INITIAL_ARGUMENT_COUNT
             active_param = se.method_arguments - 1;
-#endif
             show_help (lang_serv,
                        project,
                        method, se.extracted_expression, se.block.scope, compilation,
@@ -49,7 +47,7 @@ namespace Vls.SignatureHelpEngine {
         } else {
             // debug ("[%s] could not get extracted expression", method);
         }
-        
+
         if (signatures.is_empty) {
             lang_serv.wait_for_context_update (id, request_cancelled => {
                 if (request_cancelled) {
@@ -60,9 +58,9 @@ namespace Vls.SignatureHelpEngine {
                 Vala.CodeContext.push (compilation.code_context);
                 show_help_with_updated_context (lang_serv, project,
                                                 method,
-                                                doc, compilation, pos, 
+                                                doc, compilation, pos,
                                                 signatures, ref active_param);
-                
+
                 if (!signatures.is_empty)
                     finish (client, id, signatures, active_param);
                 else
@@ -89,7 +87,7 @@ namespace Vls.SignatureHelpEngine {
         var si = new SignatureInformation ();
         Vala.List<Vala.Parameter>? param_list = null;
         // The explicit symbol referenced, like a local variable
-        // or a method. Could be null if we invoke an array element, 
+        // or a method. Could be null if we invoke an array element,
         // for example.
         Vala.Symbol? explicit_sym = null;
         // The data type of the expression
@@ -102,9 +100,6 @@ namespace Vls.SignatureHelpEngine {
         if (result is Vala.MethodCall) {
             var mc = result as Vala.MethodCall;
             // TODO: NamedArgument's, whenever they become supported in upstream
-#if VALA_FEATURE_INITIAL_ARGUMENT_COUNT
-            active_param = mc.initial_argument_count - 1;
-#endif
             if (active_param < 0)
                 active_param = 0;
             // foreach (var arg in arg_list) {
@@ -119,7 +114,7 @@ namespace Vls.SignatureHelpEngine {
             if (data_type is Vala.ObjectType || data_type is Vala.StructValueType) {
                 Vala.CreationMethod? cm = null;
 
-                for (var current_scope = scope; current_scope != null && cm == null; 
+                for (var current_scope = scope; current_scope != null && cm == null;
                         current_scope = current_scope.parent_scope)
                     cm = current_scope.owner as Vala.CreationMethod;
 
@@ -144,7 +139,7 @@ namespace Vls.SignatureHelpEngine {
                 }
             } else if (mc.call is Vala.MemberAccess)
                 method_type_arguments = ((Vala.MemberAccess)mc.call).get_type_arguments ();
-            
+
             if (data_type is Vala.CallableType)
                 param_list = ((Vala.CallableType)data_type).get_parameters ();
             else if (data_type is Vala.ObjectType)
@@ -188,22 +183,16 @@ namespace Vls.SignatureHelpEngine {
             // now make data_type refer to the parent expression's type (if it exists)
             // note: if this is a call like `this(...)` or `base(...)`, then the data_type
             // will already be the parent type of the implied default constructor
-            if (!(data_type is Vala.ObjectType || data_type is Vala.StructValueType || data_type is Vala.DelegateType)) {
+            if (!(data_type is Vala.ObjectType || data_type is Vala.StructValueType
+                  || data_type is Vala.DelegateType)) {
                 data_type = null;
                 if (mc.call is Vala.MemberAccess && ((Vala.MemberAccess)mc.call).inner != null)
                     data_type = ((Vala.MemberAccess)mc.call).inner.value_type;
             }
-        } else if (result is Vala.ObjectCreationExpression
-#if VALA_FEATURE_INITIAL_ARGUMENT_COUNT
-                    && ((Vala.ObjectCreationExpression)result).initial_argument_count != -1
-#endif
-        ) {
+        } else if (result is Vala.ObjectCreationExpression) {
             var oce = result as Vala.ObjectCreationExpression;
             // var arg_list = oce.get_argument_list ();
             // TODO: NamedArgument's, whenever they become supported in upstream
-#if VALA_FEATURE_INITIAL_ARGUMENT_COUNT
-            active_param = oce.initial_argument_count - 1;
-#endif
             if (active_param < 0)
                 active_param = 0;
             // foreach (var arg in arg_list) {
@@ -227,7 +216,7 @@ namespace Vls.SignatureHelpEngine {
         } else {
             // debug (@"[$method] %s neither a method call nor (complete) object creation expr", result.to_string ());
             return;     // early exit
-        } 
+        }
 
         if (explicit_sym == null && data_type == null) {
             // debug (@"[$method] could not get explicit_sym and data_type from $(result.type_name)");
@@ -358,7 +347,8 @@ namespace Vls.SignatureHelpEngine {
             format_char = format_it.get_char ();
 
             // flags
-            while (format_char == '#' || format_char == '0' || format_char == '-' || format_char == ' ' || format_char == '+') {
+            while (format_char == '#' || format_char == '0' || format_char == '-'
+                   || format_char == ' ' || format_char == '+') {
                 format_it = format_it.next_char ();
                 format_char = format_it.get_char ();
             }

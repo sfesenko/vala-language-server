@@ -2,7 +2,7 @@ using Gee;
 
 /**
  * Collects only those symbols of interest to the code lens. Currently these are:
- * 
+ *
  * * methods and properties that override or implement a base symbol
  * * abstract and virtual methods and properties that are overridden
  * * methods and properties that hide a base symbol

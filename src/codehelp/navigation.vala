@@ -203,11 +203,12 @@ namespace Vls.Navigation {
                         var file = File.new_for_commandline_arg (project_file.filename);
                         if (file in generated_vapis || file in shown_files)
                             continue;
-                        SymbolReferences.list_in_file (project_file, btarget_w_sym.second, include_declaration, true, references);
+                        SymbolReferences.list_in_file (project_file, btarget_w_sym.second,
+                                                        include_declaration, true, references);
                         shown_files.add (file);
                     }
             }
-            
+
             debug (@"[$method] found $(references.size) reference(s)");
             foreach (var entry in references) {
                 if (is_highlight) {
@@ -216,7 +217,8 @@ namespace Vls.Navigation {
                         kind = determine_node_highlight_kind (entry.value)
                     }));
                 } else {
-                    json_array.add_element (Json.gobject_serialize (new Location (entry.value.source_reference.file.filename, entry.key)));
+                    json_array.add_element (Json.gobject_serialize
+                        (new Location (entry.value.source_reference.file.filename, entry.key)));
                 }
             }
 
@@ -272,8 +274,9 @@ namespace Vls.Navigation {
                 node = ((Vala.DataType) node).type_symbol;
 
             debug (@"[$method] got best: $node ($(node.type_name))");
-            bool is_abstract_type = (node is Vala.Interface) || ((node is Vala.Class) && ((Vala.Class)node).is_abstract);
-            bool is_abstract_or_virtual_method = (node is Vala.Method) && 
+            bool is_abstract_type = (node is Vala.Interface)
+                || ((node is Vala.Class) && ((Vala.Class)node).is_abstract);
+            bool is_abstract_or_virtual_method = (node is Vala.Method) &&
                 (((Vala.Method)node).is_abstract || ((Vala.Method)node).is_virtual);
             bool is_abstract_or_virtual_property = (node is Vala.Property) &&
                 (((Vala.Property)node).is_abstract || ((Vala.Property)node).is_virtual);
@@ -302,11 +305,11 @@ namespace Vls.Navigation {
                     NodeSearch fs2;
                     if (is_abstract_type) {
                         fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => node is Vala.ObjectTypeSymbol && 
+                        (needle, node) => node is Vala.ObjectTypeSymbol &&
                             ((Vala.ObjectTypeSymbol)node).is_subtype_of ((Vala.ObjectTypeSymbol) needle), false);
                     } else if (is_abstract_or_virtual_method) {
                         fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => needle != node && (node is Vala.Method) && 
+                        (needle, node) => needle != node && (node is Vala.Method) &&
                             (((Vala.Method)node).base_method == needle ||
                             ((Vala.Method)node).base_interface_method == needle), false);
                     } else {
@@ -325,7 +328,8 @@ namespace Vls.Navigation {
                 Vala.CodeNode real_node = ref_node;
                 if (ref_node is Vala.Symbol)
                     real_node = SymbolReferences.find_real_symbol (project, (Vala.Symbol) ref_node);
-                json_array.add_element (Json.gobject_serialize (new Location.from_sourceref (real_node.source_reference)));
+                json_array.add_element (Json.gobject_serialize
+                    (new Location.from_sourceref (real_node.source_reference)));
             }
 
             try {

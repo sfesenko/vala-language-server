@@ -19,7 +19,7 @@
 using Lsp;
 using Gee;
 
-/** 
+/**
  * Contains routines for analyzing references to symbols across the project.
  * Used by `textDocument/definition`, `textDocument/rename`, `textDocument/prepareRename`,
  * `textDocument/references`, and `textDocument/documentHighlight`.
@@ -58,14 +58,15 @@ namespace Vls.SymbolReferences {
                 // look for the GIR version of current_sym instead
                 if (matching_sym == null && (gir_name = current_sym.get_attribute_string ("GIR", "name")) != null) {
                     matching_sym = symtab[gir_name];
-                    if (matching_sym != null && matching_sym.source_reference.file.file_type != Vala.SourceFileType.PACKAGE)
+                    if (matching_sym != null
+                        && matching_sym.source_reference.file.file_type != Vala.SourceFileType.PACKAGE)
                         matching_sym = null;
                 }
             } else {
                 // workaround: "GLib" namespace may be empty when dealing with GLib-2.0.gir (instead, "G" namespace will be populated)
                 if (matching_sym.name == "GLib") {
                     matching_sym = context.root.scope.lookup ("G");
-                } else 
+                } else
                     matching_sym = null;
             }
         }
@@ -106,7 +107,8 @@ namespace Vls.SymbolReferences {
      *
      * @return      a new {@link Lsp.Range} narrowed from the source reference
      */
-    Range get_narrowed_source_reference (Vala.SourceReference source_reference, string representation, int start, int end) {
+    Range get_narrowed_source_reference (Vala.SourceReference source_reference,
+                                          string representation, int start, int end) {
         var range = new Range.from_sourceref (source_reference);
 
         // move the start of the range up [last_index_of_symbol] characters
@@ -163,7 +165,7 @@ namespace Vls.SymbolReferences {
 
         if (index_of_symbol == -1)
             return null;
-        
+
         return get_narrowed_source_reference (
             code_node.source_reference,
             representation,
@@ -215,7 +217,8 @@ namespace Vls.SymbolReferences {
                         foreach (var component in components) {
                             if (component == symbol || CodeHelp.namespaces_equal (component, symbol)) {
                                 end = start + component.name.length;
-                                ranges += get_narrowed_source_reference (node.comment.source_reference, node.comment.content, start, end);
+                                ranges += get_narrowed_source_reference
+                                    (node.comment.source_reference, node.comment.content, start, end);
                                 break;
                             }
                             start += component.name.length;
@@ -247,7 +250,8 @@ namespace Vls.SymbolReferences {
                             // see comment early up in this function
                             start -= 4;
                             end = start + param_name.length;
-                            ranges += get_narrowed_source_reference (node.comment.source_reference, node.comment.content, start, end);
+                            ranges += get_narrowed_source_reference
+                                (node.comment.source_reference, node.comment.content, start, end);
                         }
                     }
 
@@ -264,8 +268,8 @@ namespace Vls.SymbolReferences {
         return ranges;
     }
 
-    /** 
-     * Because a {@link Vala.DataType} or {@link Vala.Symbol} code node 
+    /**
+     * Because a {@link Vala.DataType} or {@link Vala.Symbol} code node
      * does not have precise source reference information for each component
      * that the parser found before this data type/symbol was constructed by the
      * semantic analyzer, we use this to get all of the visible components
@@ -274,10 +278,10 @@ namespace Vls.SymbolReferences {
      * If ``code_node.source_reference`` is ``null``, then this function returns
      * an empty list.
      *
-     * @param code_node         The code node. Should be either a 
+     * @param code_node         The code node. Should be either a
      *                          {@link Vala.DataType}, a {@link Vala.MemberAccess},
      *                          or a {@link Vala.Namespace}.
-     * @return                  A collection of components found at the source code 
+     * @return                  A collection of components found at the source code
      *                          spanned by the data type code node. For example, if
      *                          the data type is {@link GLib.File}, then perhaps the
      *                          source code was ``File`` (if ``GLib`` is imported
@@ -330,10 +334,11 @@ namespace Vls.SymbolReferences {
                 }
 
                 if (unbalanced_rangles != 0)
-                    warning ("unbalanced right angles in representation of code node %s: %s", code_node.type_name, representation);
+                    warning ("unbalanced right angles in representation of code node %s: %s",
+                             code_node.type_name, representation);
             }
 
-            for (var current_sym = symbol; 
+            for (var current_sym = symbol;
                 current_sym != null && current_sym.name != null && end >= current_sym.name.length;
                 current_sym = current_sym.parent_symbol) {
                 int last_dot_char = -1;
@@ -347,7 +352,9 @@ namespace Vls.SymbolReferences {
                     int last_nl_pos;
                     int nl_count = (int) Util.count_chars_in_string (prefix, '\n', out last_nl_pos);
                     int begin_line = code_node.source_reference.begin.line + nl_count;
-                    int begin_column = last_nl_pos == -1 ? code_node.source_reference.begin.column + start : start - last_nl_pos;
+                    int begin_column = last_nl_pos == -1
+                        ? code_node.source_reference.begin.column + start
+                        : start - last_nl_pos;
                     int end_line = begin_line;
                     int end_column = begin_column + current_sym.name.length - 1;
                     var sr = new Vala.SourceReference (code_node.source_reference.file,
@@ -368,10 +375,12 @@ namespace Vls.SymbolReferences {
                         int last_space_pos = substring.last_index_of_char (' ');
                         if (last_space_pos != -1)
                             substring = substring.substring (last_space_pos + 1);
-                        if (substring != "unowned" && substring != "owned" && substring != "weak" && substring != "namespace" &&
+                        if (substring != "unowned" && substring != "owned"
+                            && substring != "weak" && substring != "namespace" &&
                             substring != "class" && substring != "interface" && substring != "struct" &&
                             substring != "errordomain" && substring != "enum")
-                            warning ("expected `.', got `%s' in symbol %s for %s (%s)", substring, symbol.get_full_name (), symbol.type_name, representation);
+                            warning ("expected `.', got `%s' in symbol %s for %s (%s)",
+                             substring, symbol.get_full_name (), symbol.type_name, representation);
                         else
                             end = 0;
                         break;
@@ -410,7 +419,9 @@ namespace Vls.SymbolReferences {
      * @param include_invisible     include invisible symbol references (set to `false` if not replacing)
      * @param references            the collection to fill with references
      */
-    void list_in_file (Vala.SourceFile file, Vala.Symbol symbol, bool include_declaration, bool include_invisible, HashMap<Range, Vala.CodeNode> references) {
+    void list_in_file (Vala.SourceFile file, Vala.Symbol symbol,
+                        bool include_declaration, bool include_invisible,
+                        HashMap<Range, Vala.CodeNode> references) {
         new SymbolVisitor (file, symbol, include_declaration, node => {
             Collection<Pair<Vala.Symbol, Range>>? components = null;
             Vala.CodeNode? member_name = null;     // member_name
@@ -422,7 +433,8 @@ namespace Vls.SymbolReferences {
                     references[rrange] = node;
             } else if (node is Vala.MemberAccess && ((Vala.Expression)node).symbol_reference == symbol) {
                 components = get_visible_components_of_code_node (node);
-            } else if (node is Vala.ObjectCreationExpression && oce_references_symbol ((Vala.ObjectCreationExpression)node, symbol)) {
+            } else if (node is Vala.ObjectCreationExpression
+                       && oce_references_symbol ((Vala.ObjectCreationExpression)node, symbol)) {
                 components = get_visible_components_of_code_node (((Vala.ObjectCreationExpression)node).member_name);
                 member_name = ((Vala.ObjectCreationExpression)node).member_name;
             } else if (node is Vala.UsingDirective && ((Vala.UsingDirective)node).namespace_symbol == symbol) {
@@ -444,7 +456,7 @@ namespace Vls.SymbolReferences {
                     // it's expensive to run get_visible_components_of_code_node() every time we
                     // see a ValaDataType, so only run it if the source reference for the ValaDataType
                     // could potentially match @symbol
-                    for (var current_sym = get_symbol_data_type_refers_to ((Vala.DataType) node); 
+                    for (var current_sym = get_symbol_data_type_refers_to ((Vala.DataType) node);
                             current_sym != null;
                             current_sym = current_sym.parent_symbol) {
                         if (symbol == current_sym) {
@@ -456,17 +468,20 @@ namespace Vls.SymbolReferences {
             }
 
             if (components != null) {
-                var result = components.first_match (pair => pair.first == symbol || CodeHelp.namespaces_equal (pair.first, symbol));
+                var result = components.first_match (pair => pair.first == symbol
+                    || CodeHelp.namespaces_equal (pair.first, symbol));
                 if (result != null) {
                     references[result.second] = member_name ?? node;
                 } else if (symbol is Vala.CreationMethod && symbol.name == ".new") {
                     // retry with parent symbol for default creation methods
                     var type_symbol = symbol.parent_symbol;
-                    result = components.first_match (pair => pair.first == type_symbol || CodeHelp.namespaces_equal (pair.first, type_symbol));
+                    result = components.first_match (pair => pair.first == type_symbol
+                        || CodeHelp.namespaces_equal (pair.first, type_symbol));
                     if (result != null)
                         references[result.second] = member_name ?? node;
                 }
-            } else if (include_invisible && node is Vala.Expression && ((Vala.Expression)node).symbol_reference == symbol) {
+            } else if (include_invisible && node is Vala.Expression
+                       && ((Vala.Expression)node).symbol_reference == symbol) {
                 references[new Range.from_sourceref (node.source_reference)] = node;
             }
 
@@ -479,13 +494,15 @@ namespace Vls.SymbolReferences {
     }
 
     /**
-     * Finds all implementations of a virtual symbol. 
+     * Finds all implementations of a virtual symbol.
      *
      * @param file          the file to search for implementions of the symbol in
      * @param symbol        the virtual symbol to compare against implementation symbols
      * @param references    a collection of references that will be updated
      */
-    void list_implementations_of_virtual_symbol (Vala.SourceFile file, Vala.Symbol symbol, HashMap<Range, Vala.CodeNode> references) {
+    void list_implementations_of_virtual_symbol (Vala.SourceFile file,
+                                                  Vala.Symbol symbol,
+                                                  HashMap<Range, Vala.CodeNode> references) {
         new SymbolVisitor (file, symbol, true, node => {
             bool is_implementation = false;
             if (node is Vala.Property) {
@@ -515,7 +532,7 @@ namespace Vls.SymbolReferences {
         });
     }
 
-    /** 
+    /**
      * It's possible that a symbol can be used across build targets within a
      * project. This returns a list of all pairs of ``(compilation, symbol)``
      * matching @sym where ``symbol`` is defined within ``compilation``.

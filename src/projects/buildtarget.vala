@@ -48,7 +48,7 @@ abstract class Vls.BuildTarget : Object, Hashable<BuildTarget> {
 
     /**
      * Build the target only if it needs to be built from its sources and if
-     * its dependencies are newer than this target. This does not take care of 
+     * its dependencies are newer than this target. This does not take care of
      * building the target's dependencies.
      */
     public abstract void build_if_stale (Cancellable? cancellable = null) throws Error;

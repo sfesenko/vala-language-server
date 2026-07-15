@@ -17,16 +17,23 @@ unit_exe = executable('vls-unit-test',
   install: false)
 
 integration_src = files([
-  'integration.vala',
+  'int_runner.vala',
+  'int_helpers.vala',
+  'int_core.vala',
+  'int_navigation.vala',
+  'int_semantictokens.vala',
+  'int_editing.vala',
+  'int_hierarchy.vala',
+  'int_misc.vala',
 ])
 
-integration_exe = executable('vls-integration-test',
+int_exe = executable('vls-int-test',
   dependencies: deps,
-  sources: [integration_src],
+  sources: [integration_src, extra_vala_sources],
   install: false)
 
 # Register each GLib subtest as its own meson test so they are visible
-# individually, grouped into the `unit` and `integration` suites.
+# individually, grouped into the `int` and `unit` suites.
 unit_tests = [
   '/vls/util/compare_versions',
   '/vls/util/get_string_pos',
@@ -48,21 +55,30 @@ foreach t : unit_tests
 endforeach
 
 integration_tests = [
-  '/vls/integration/publish_diagnostics',
-  '/vls/integration/non_native_root_survives',
-  '/vls/integration/initialize_capabilities',
-  '/vls/integration/document_symbol',
-  '/vls/integration/hover',
-  '/vls/integration/goto_definition',
-  '/vls/integration/range_formatting',
-  '/vls/integration/completion',
-  '/vls/integration/semantic_tokens_full',
-  '/vls/integration/semantic_tokens_coverage',
+  '/int/publish_diagnostics',
+  '/int/non_native_root_survives',
+  '/int/initialize_capabilities',
+  '/int/document_symbol',
+  '/int/hover',
+  '/int/goto_definition',
+  '/int/range_formatting',
+  '/int/completion',
+  '/int/semantic_tokens_full',
+  '/int/semantic_tokens_coverage',
+  '/int/semantic_tokens_range',
+  '/int/references',
+  '/int/document_highlight',
+  '/int/inlay_hint',
+  '/int/workspace_symbol',
+  '/int/formatting',
+  '/int/implementation',
+  '/int/prepare_call_hierarchy',
+  '/int/prepare_type_hierarchy',
 ]
 
 foreach t : integration_tests
-  test('integration' + t, integration_exe,
+  test('int' + t, int_exe,
        args: ['-p', t],
-       suite: 'integration',
+       suite: 'int',
        env: ['VLS_SERVER_PATH=' + vls.full_path()])
 endforeach

@@ -31,7 +31,7 @@ class Vls.DocComment {
 
     /**
      * The list of parameters for this symbol. The key is the
-     * parameter name and the value is the Markdown documentation for 
+     * parameter name and the value is the Markdown documentation for
      * that parameter.
      */
     public HashMap<string, string> parameters { get; private set; default = new HashMap<string, string> (); }
@@ -82,7 +82,7 @@ class Vls.DocComment {
      * Render a ValaDoc-formatted comment into Markdown.
      *
      * see [[https://valadoc.org/markup.htm]]
-     * 
+     *
      * @param comment           a comment in ValaDoc format
      * @param symbol            the symbol associated with the comment
      * @param compilation       the current compilation that is the context of the comment
@@ -124,10 +124,10 @@ class Vls.DocComment {
 
         // TODO: we'll avoid rendering all of the kinds of lists now, since some are already
         // supported by markdown
-        
+
         // code blocks (with support for a non-standard language specifier)
         body = /{{{(\w+)?(.*?)}}}/s.replace (body, body.length, 0, "```\\1\\2```");
-        
+
         // images and links
         body = /(\[\[|{{)([~:\/\\\w\-.]+)(\|(.*?))?(\]\]|}})/
             .replace_eval (body, body.length, 0, 0, (match_info, result) => {
@@ -153,7 +153,7 @@ class Vls.DocComment {
                 }
                 return false;
             });
-        
+
         // tables
         body = /(?'header'\|\|(.*?\|\|)+(\n|$))(?'rest'(?&header)+)/
             .replace_eval (body, body.length, 0, 0, (match_info, result) => {
@@ -166,7 +166,7 @@ class Vls.DocComment {
                     result.append ("\n\n(failed to render ValaDoc table)\n\n");
                     return false;
                 }
-                
+
                 try {
                     result.append (columns_regex.replace (header, header.length, 0, "|\\1"));
                     result.append_c ('|');
@@ -185,7 +185,7 @@ class Vls.DocComment {
 
                 return false;
             });
-        
+
         // render headlines
         body = /^(?<prefix>=+) (.+?) (?P=prefix)$/m
             .replace_eval (body, body.length, 0, 0, (match_info, result) => {
@@ -197,7 +197,7 @@ class Vls.DocComment {
                 result.append (heading);
                 return false;
             });
-        
+
         // inline taglets
         DocComment? parent_comment = null;
         bool computed_parent = false;
@@ -233,14 +233,14 @@ class Vls.DocComment {
                 parameters[param_name] = param_description;
                 return false;
             });
-        
+
         // block taglets: @return
         body = /^@return[\t\f\v ]+(.+(\n[\t\f ]?([^@]|@(?!deprecated|see|param|since|return|throws))+)*)$/m
             .replace_eval (body, body.length, 0, 0, (match_info, result) => {
                 return_body = (!) match_info.fetch (1);
                 return false;
             });
-        
+
         // block taglets: @see
         body = /^@see[\t\f ]+((?'ident'[A-Za-z_]\w*)(\.(?&ident))*?)$/m
             .replace_eval (body, body.length, 0, 0, (match_info, result) => {

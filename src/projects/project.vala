@@ -30,9 +30,9 @@ abstract class Vls.Project : Object {
     /**
      * This collection must be topologically sorted.
      */
-    protected ArrayList<BuildTarget> build_targets = new ArrayList<BuildTarget> (); 
+    protected ArrayList<BuildTarget> build_targets = new ArrayList<BuildTarget> ();
 
-    /** 
+    /**
      * Directories of additional files (mainly C sources) that have to be
      * monitored because they have an indirect influence on Vala code.
      */
@@ -49,7 +49,7 @@ abstract class Vls.Project : Object {
         this.file_cache = file_cache;
     }
 
-    /** 
+    /**
      * Determine dependencies and remove build targets that are not needed.
      * This is the final operation needed before the project is ready to be
      * built.
@@ -57,13 +57,13 @@ abstract class Vls.Project : Object {
     protected void analyze_build_targets (Cancellable? cancellable = null) throws Error {
         // first, check that at least one target is a Compilation
         if (!build_targets.any_match (t => t is Compilation))
-            throw new ProjectError.CONFIGURATION (@"project has no Vala targets");
+            throw new ProjectError.CONFIGURATION ("project has no Vala targets");
 
         // there may be multiple consumers of a file
         var consumers_of = new HashMap<File, HashSet<BuildTarget>> (Util.file_hash, Util.file_equal);
         // there can only be one primary producer of a file, while there can be
         // many secondary producers that modify the file
-        var producers_for = new HashMap<File, HashSet<BuildTarget>> (Util.file_hash, Util.file_equal); 
+        var producers_for = new HashMap<File, HashSet<BuildTarget>> (Util.file_hash, Util.file_equal);
         var unknown = new ArrayList<BuildTask> ();
 
         // 1. Find producers + consumers
@@ -86,7 +86,9 @@ abstract class Vls.Project : Object {
             }
             if (!is_consumer_or_producer) {
                 if (!(btarget is BuildTask))
-                    throw new ProjectError.CONFIGURATION (@"Only build tasks can be initially neither producers nor consumers, not $(btarget.get_class ().get_name ())!");
+                    throw new ProjectError.CONFIGURATION (
+                        "Only build tasks can be initially neither producers nor consumers, not "
+                        + btarget.get_class ().get_name () + "!");
                 debug ("\t- %s neither produces nor consumes any files (for now)", btarget.id);
             }
             // add btarget to neither anyway, if it is a build task
@@ -96,7 +98,7 @@ abstract class Vls.Project : Object {
 
         // 2. For those in the 'unknown' category, attempt to guess whether
         //    they are producers or consumers. For each file of each target,
-        //    if the file already has a producer, then the target probably 
+        //    if the file already has a producer, then the target probably
         //    consumes that file. If the file has only consumers, then the target
         //    probably produces that file.
         //    Note: this strategy assumes topological ordering of the targets.
@@ -137,7 +139,7 @@ abstract class Vls.Project : Object {
                 // are outputs to the next target(s)
                 if (producers_for.has_key (uncategorized_file)) {
                     producers_for[uncategorized_file].foreach (conflict => {
-                        warning ("Project: build target %s already produces file (%s) produced by %s.", 
+                        warning ("Project: build target %s already produces file (%s) produced by %s.",
                                  conflict.id, uncategorized_file.get_path (), btask.id);
                         return true;
                     });
@@ -160,12 +162,14 @@ abstract class Vls.Project : Object {
                 if (!(file_produced in btarget.input) &&
                     producers.any_match (other => !other.equal_to (btarget) && !(file_produced in other.input))) {
                     var conflict = producers.first_match (other => !other.equal_to (btarget) && !(file_produced in other.input));
-                    throw new ProjectError.CONFIGURATION (@"There are two build targets that only produce the same file! Both $(btarget.id) and $(conflict.id) produce $(file_produced.get_path ())");
+                    throw new ProjectError.CONFIGURATION (
+                        "There are two build targets that only produce the same file! Both "
+                        + btarget.id + " and " + conflict.id + " produce " + file_produced.get_path ());
                 }
             }
         }
 
-        // 4. Analyze dependencies. Only keep build targets that are Compilations 
+        // 4. Analyze dependencies. Only keep build targets that are Compilations
         //    or are in a dependency chain for a Compilation
         var targets_to_keep = new LinkedList<BuildTarget> ();
         int last_idx = build_targets.size - 1;
@@ -178,7 +182,7 @@ abstract class Vls.Project : Object {
         }
         for (int i = last_idx - 1; i >= 0; i--) {
             bool needed_by_vala_compilation = false;
-            // build_targets[i] is the producer 
+            // build_targets[i] is the producer
             // build_targets[j] is the consumer
             for (int j = last_idx; j > i; j--) {
                 foreach (var file in build_targets[j].input) {
@@ -186,7 +190,7 @@ abstract class Vls.Project : Object {
                         producers_for[file].any_match (t => t.equal_to (build_targets [i]))) {
                         needed_by_vala_compilation = true;
                         build_targets[j].dependencies[file] = build_targets[i];
-                        debug ("Project: found dependency: %s --(%s)--> %s", 
+                        debug ("Project: found dependency: %s --(%s)--> %s",
                                build_targets[i].id, file.get_path (), build_targets[j].id);
                     }
                 }
@@ -204,7 +208,10 @@ abstract class Vls.Project : Object {
         //    (this is probably unnecessary)
         for (int i = 1; i < build_targets.size; i++) {
             if (build_targets[i].no < build_targets[i-1].no)
-                throw new ProjectError.CONFIGURATION (@"Project: build target #$(build_targets[i].no) ($(build_targets[i].id)) comes after build target #$(build_targets[i-1].no) ($(build_targets[i-1].id))");
+                throw new ProjectError.CONFIGURATION (
+                    "Project: build target #" + build_targets[i].no.to_string ()
+                    + " (" + build_targets[i].id + ") comes after build target #"
+                    + build_targets[i-1].no.to_string () + " (" + build_targets[i-1].id + ")");
         }
 
         // 6. monitor source directories of non-Vala build targets
@@ -319,7 +326,7 @@ abstract class Vls.Project : Object {
 
     /**
      * Close the file. Returns whether a context update is required.
-     * The default implementation of this method is to restore the text document to 
+     * The default implementation of this method is to restore the text document to
      * its last save point.
      */
     public virtual bool close (string escaped_uri) throws Error {
@@ -331,8 +338,8 @@ abstract class Vls.Project : Object {
             var text_document = pair.first as TextDocument;
             if (text_document == null)
                 continue;
-            // If we're closing this document, but the last saved version 
-            // is not the same as the current version, then we need to 
+            // If we're closing this document, but the last saved version
+            // is not the same as the current version, then we need to
             // restore our last checkpoint.
             if (text_document.last_saved_version != text_document.version) {
                 text_document.content = text_document.last_saved_content;
@@ -359,7 +366,7 @@ abstract class Vls.Project : Object {
         }
         return results;
     }
-    
+
     /**
      * Gets a list of all directories containing GIRs that are generated by a
      * target.
@@ -418,7 +425,7 @@ errordomain Vls.ProjectError {
     CONFIGURATION,
 
     /**
-     * If a build task failed. 
+     * If a build task failed.
      */
     TASK_FAILED,
 

@@ -48,10 +48,6 @@ vls_src = files([
   'server.vala',
 ])
 
-if get_option('active_parameter')
-  add_project_arguments(['--define=VALA_FEATURE_INITIAL_ARGUMENT_COUNT'], language: 'vala')
-endif
-
 vls = executable('vala-language-server',
   dependencies: deps,
   sources: [vls_src, conf_file, version_file, extra_vala_sources],

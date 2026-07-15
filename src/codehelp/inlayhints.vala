@@ -50,7 +50,8 @@ namespace Vls.InlayHints {
             MatchInfo foreach_match;
             if (item is Vala.DeclarationStatement)
                 local = ((Vala.DeclarationStatement)item).declaration as Vala.LocalVariable;
-            if (local != null && local.source_reference != null && !(local.initializer is Vala.ObjectCreationExpression) &&
+            if (local != null && local.source_reference != null
+                && !(local.initializer is Vala.ObjectCreationExpression) &&
                 local in compilation.var_decls) {
                 hints += new InlayHint () {
                     position = new Position.from_libvala (local.source_reference.end),

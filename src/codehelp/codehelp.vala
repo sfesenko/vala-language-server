@@ -29,7 +29,7 @@ namespace Vls.CodeHelp {
             var target_type = (Vala.TypeSymbol) member.parent_symbol;
             bool in_subtype = false;
 
-            for (Vala.Symbol? this_symbol = current_scope.owner; 
+            for (Vala.Symbol? this_symbol = current_scope.owner;
                  this_symbol != null;
                  this_symbol = this_symbol.parent_symbol) {
                 if (this_symbol == target_type) {
@@ -81,7 +81,8 @@ namespace Vls.CodeHelp {
         var from = (long) Util.get_string_pos (content, sr.begin.line-1, sr.begin.column-1);
         var to = (long) Util.get_string_pos (content, sr.end.line-1, sr.end.column);
         if (from > to) {
-            warning ("expression %s has bad source reference %s", node.to_string (), node.source_reference.to_string ());
+            warning ("expression %s has bad source reference %s",
+                     node.to_string (), node.source_reference.to_string ());
             return node.to_string ();
         }
         return file.content[from:to];
@@ -113,7 +114,8 @@ namespace Vls.CodeHelp {
         return null;
     }
 
-    public Vala.Symbol? lookup_symbol_full_name (string full_name, Vala.Scope scope, out Gee.ArrayList<Vala.Symbol> components = null) {
+    public Vala.Symbol? lookup_symbol_full_name (string full_name, Vala.Scope scope,
+                                                  out Gee.ArrayList<Vala.Symbol> components = null) {
         string[] symbol_names = full_name.split (".");
         Vala.Symbol? current_symbol = lookup_in_scope_and_ancestors (scope, symbol_names[0]);
         components = new Gee.ArrayList<Vala.Symbol> ();
@@ -125,7 +127,8 @@ namespace Vls.CodeHelp {
             var found_symbol = current_symbol.scope.lookup (symbol_names[i]);
             if (found_symbol == null && symbol_names[i] == "new") {
                 if (current_symbol is Vala.Class)
-                    found_symbol = (((Vala.Class)current_symbol).default_construction_method as Vala.Symbol) ?? ((Vala.Class)current_symbol).constructor;
+                    found_symbol = (((Vala.Class)current_symbol).default_construction_method
+                                    as Vala.Symbol) ?? ((Vala.Class)current_symbol).constructor;
                 else if (current_symbol is Vala.Struct)
                     found_symbol = ((Vala.Struct)current_symbol).default_construction_method;
             }
@@ -144,9 +147,11 @@ namespace Vls.CodeHelp {
      * @param scope                             the current scope
      * @param hide_imported_namespace_parent    whether to not print a parent symbol if it is an imported namespace
      */
-    string get_symbol_name_representation (Vala.Symbol symbol, Vala.Scope? scope, bool hide_imported_namespace_parent = false) {
+    string get_symbol_name_representation (Vala.Symbol symbol, Vala.Scope? scope,
+                                            bool hide_imported_namespace_parent = false) {
         var components = new GLib.Queue<string> ();
-        for (var current_symbol = symbol; current_symbol != null && current_symbol.name != null; current_symbol = current_symbol.parent_symbol) {
+        for (var current_symbol = symbol; current_symbol != null && current_symbol.name != null;
+             current_symbol = current_symbol.parent_symbol) {
             components.push_head (current_symbol.name);
             if (scope != null && lookup_in_scope_and_ancestors (scope, current_symbol.name) == current_symbol) {
                 break;
@@ -155,7 +160,8 @@ namespace Vls.CodeHelp {
                 && find_imported_symbol_in_scope (scope, current_symbol.name) == current_symbol) {
                 bool symbol_ambiguity = false;
                 foreach (Vala.UsingDirective ud in scope.owner.source_reference.using_directives) {
-                    if (ud.namespace_symbol != current_symbol.parent_symbol && ud.namespace_symbol.scope.lookup (current_symbol.name) != null) {
+                    if (ud.namespace_symbol != current_symbol.parent_symbol
+                        && ud.namespace_symbol.scope.lookup (current_symbol.name) != null) {
                         symbol_ambiguity = true;
                         break;
                     }
@@ -183,23 +189,27 @@ namespace Vls.CodeHelp {
      * @param scope                             the current scope
      * @param hide_imported_namespace_parent    whether to not print a parent symbol if it is an imported namespace
      */
-    string get_data_type_representation (Vala.DataType data_type, Vala.Scope? scope, bool hide_imported_namespace_parent = false) {
+    string get_data_type_representation (Vala.DataType data_type, Vala.Scope? scope,
+                                          bool hide_imported_namespace_parent = false) {
         var builder = new StringBuilder ();
 
         if (data_type is Vala.ArrayType) {  // ArrayType is a ReferenceType
             // see ArrayType.to_qualified_string()
             var array_type = (Vala.ArrayType) data_type;
-            var elem_str = get_data_type_representation (array_type.element_type, scope, hide_imported_namespace_parent);
+            var elem_str = get_data_type_representation
+                (array_type.element_type, scope, hide_imported_namespace_parent);
             if (array_type.element_type.is_weak () && !(array_type.parent_node is Vala.Constant)) {
                 elem_str = "(unowned %s)".printf (elem_str);
             }
 
             if (!array_type.fixed_length)
-                return "%s[%s]%s".printf (elem_str, string.nfill (array_type.rank - 1, ','), array_type.nullable ? "?" : "");
+                return "%s[%s]%s".printf (elem_str,
+                    string.nfill (array_type.rank - 1, ','), array_type.nullable ? "?" : "");
             return elem_str;
         } else if (data_type is Vala.ReferenceType && data_type.symbol != null) {
             var reference_type = (Vala.ReferenceType) data_type;
-            builder.append (get_symbol_name_representation (reference_type.symbol, scope, hide_imported_namespace_parent));
+            builder.append (get_symbol_name_representation
+                (reference_type.symbol, scope, hide_imported_namespace_parent));
             var type_arguments = reference_type.get_type_arguments ();
             if (!type_arguments.is_empty)
                 builder.append_c ('<');
@@ -250,7 +260,8 @@ namespace Vls.CodeHelp {
      * disallowed but regardless this function should never be called with a
      * type symbol that does not belong to the hierarchy.
      */
-    private Vala.List<Vala.DataType>? get_actual_type_arguments_for_parent_symbol (Vala.DataType instance_type, Vala.TypeSymbol parent_symbol) {
+    private Vala.List<Vala.DataType>? get_actual_type_arguments_for_parent_symbol
+        (Vala.DataType instance_type, Vala.TypeSymbol parent_symbol) {
         var search = new GLib.Queue<Vala.DataType> ();
         search.push_tail (instance_type);
 
@@ -267,7 +278,8 @@ namespace Vls.CodeHelp {
                 foreach (var prereq_type in ((Vala.Interface)candidate_type.type_symbol).get_prerequisites ())
                     search.push_tail (prereq_type.get_actual_type (candidate_type, null, null));
             } else if (candidate_type.type_symbol is Vala.Struct) {
-                search.push_tail (((Vala.Struct)candidate_type.type_symbol).base_type.get_actual_type (candidate_type, null, null));
+                search.push_tail (((Vala.Struct)candidate_type.type_symbol).base_type
+                    .get_actual_type (candidate_type, null, null));
             }
         }
 
@@ -280,7 +292,8 @@ namespace Vls.CodeHelp {
      * @param method_type_arguments the type arguments for this method, or null
      * @param allow_show_parent_member whether to show the parent member of the callable symbol
      */
-    private string get_callable_representation (Vala.DataType? instance_type, Vala.List<Vala.DataType>? method_type_arguments,
+    private string get_callable_representation (Vala.DataType? instance_type,
+                                                  Vala.List<Vala.DataType>? method_type_arguments,
                                                 Vala.Callable callable_sym, Vala.Scope? scope, bool show_initializers,
                                                 bool allow_show_parent_member,
                                                 string? override_name = null, bool is_parent_symbol = false,
@@ -343,7 +356,8 @@ namespace Vls.CodeHelp {
             }
         } else {
             if (!is_parent_symbol) {
-                var actual_return_type = callable_sym.return_type.get_actual_type (instance_type, method_type_arguments, callable_sym);
+                var actual_return_type = callable_sym.return_type.get_actual_type
+                    (instance_type, method_type_arguments, callable_sym);
                 if (actual_return_type.is_weak ())
                     builder.append ("unowned ");
                 builder.append (get_data_type_representation (actual_return_type, scope));
@@ -354,14 +368,18 @@ namespace Vls.CodeHelp {
                 if (callable_sym.parent_symbol is Vala.TypeSymbol) {
                     Vala.List<Vala.DataType>? parent_type_arguments = null;
                     if (instance_type != null)
-                        parent_type_arguments = get_actual_type_arguments_for_parent_symbol (instance_type, (Vala.TypeSymbol)callable_sym.parent_symbol);
+                        parent_type_arguments
+                            = get_actual_type_arguments_for_parent_symbol
+                                (instance_type, (Vala.TypeSymbol)callable_sym.parent_symbol);
                     string? parent_symbol_representation =
                         get_symbol_representation (null, callable_sym.parent_symbol, scope, allow_show_parent_member, parent_type_arguments, null, false, true);
                     builder.append (parent_symbol_representation);
                     builder.append_c ('.');
                 } else if (callable_sym.parent_symbol is Vala.Namespace &&
                            callable_sym.parent_symbol.to_string () != "(root namespace)") {
-                    builder.append (get_symbol_representation (null, callable_sym.parent_symbol, scope, allow_show_parent_member, null, null, false, true));
+                    builder.append (get_symbol_representation
+                        (null, callable_sym.parent_symbol, scope,
+                         allow_show_parent_member, null, null, false, true));
                     builder.append_c ('.');
                 }
             }
@@ -389,7 +407,7 @@ namespace Vls.CodeHelp {
                 if (i > 1) {
                     builder.append_c (',');
                 }
-                int idx = (callable_sym is Vala.Delegate) ? 
+                int idx = (callable_sym is Vala.Delegate) ?
                             ((Vala.Delegate)callable_sym).get_type_parameter_index (type_parameter.name) :
                             ((Vala.Method)callable_sym).get_type_parameter_index (type_parameter.name);
                 if (method_type_arguments != null && idx < method_type_arguments.size) {
@@ -414,7 +432,8 @@ namespace Vls.CodeHelp {
             if (callable_sym is Vala.Delegate) {
                 var delegate_symbol = (Vala.Delegate) callable_sym;
                 if (delegate_symbol.parent_symbol is Vala.Signal && delegate_symbol.sender_type != null) {
-                    var actual_sender_type = delegate_symbol.sender_type.get_actual_type (instance_type, method_type_arguments, callable_sym);
+                    var actual_sender_type = delegate_symbol.sender_type.get_actual_type
+                        (instance_type, method_type_arguments, callable_sym);
                     builder.append (get_data_type_representation (actual_sender_type, scope));
                     i++;
                 }
@@ -448,7 +467,8 @@ namespace Vls.CodeHelp {
                     builder.append ("params ");
                 }
 
-                var actual_var_type = param.variable_type.get_actual_type (instance_type, method_type_arguments, callable_sym);
+                var actual_var_type = param.variable_type.get_actual_type
+                    (instance_type, method_type_arguments, callable_sym);
 
                 if (param.direction == Vala.ParameterDirection.IN) {
                     if (actual_var_type.value_owned) {
@@ -513,12 +533,14 @@ namespace Vls.CodeHelp {
     /**
      * Represents a variable symbol
      */
-    private string get_variable_representation (Vala.DataType? data_type, Vala.List<Vala.DataType>? method_type_arguments,
+    private string get_variable_representation (Vala.DataType? data_type,
+                                                  Vala.List<Vala.DataType>? method_type_arguments,
                                                 Vala.Variable variable_sym, Vala.Scope? scope, string? override_name,
                                                 bool allow_show_parent_member,
                                                 bool show_initializer,
                                                 bool show_parameter_direction) {
-        Vala.DataType? actual_var_type = variable_sym.variable_type.get_actual_type (data_type, method_type_arguments, variable_sym);
+        Vala.DataType? actual_var_type = variable_sym.variable_type.get_actual_type
+            (data_type, method_type_arguments, variable_sym);
         var builder = new StringBuilder ();
         if (!(variable_sym is Vala.Parameter)) {
             if (variable_sym is Vala.Field && ((Vala.Field)variable_sym).binding == Vala.MemberBinding.CLASS)
@@ -544,14 +566,17 @@ namespace Vls.CodeHelp {
             if (variable_sym.parent_symbol is Vala.TypeSymbol) {
                 Vala.List<Vala.DataType>? parent_type_arguments = null;
                 if (data_type != null)
-                    parent_type_arguments = get_actual_type_arguments_for_parent_symbol (data_type, (Vala.TypeSymbol)variable_sym.parent_symbol);
+                    parent_type_arguments = get_actual_type_arguments_for_parent_symbol
+                        (data_type, (Vala.TypeSymbol)variable_sym.parent_symbol);
                 string? parent_symbol_representation =
                     get_symbol_representation (null, variable_sym.parent_symbol, scope, allow_show_parent_member, parent_type_arguments, null, false, true);
                 builder.append (parent_symbol_representation);
                 builder.append_c ('.');
             } else if (variable_sym.parent_symbol is Vala.Namespace &&
                        variable_sym.parent_symbol.to_string () != "(root namespace)") {
-                builder.append (get_symbol_representation (null, variable_sym.parent_symbol, scope, allow_show_parent_member, null, null, false, true));
+                builder.append (get_symbol_representation
+                    (null, variable_sym.parent_symbol, scope,
+                     allow_show_parent_member, null, null, false, true));
                 builder.append_c ('.');
             }
         }
@@ -559,7 +584,8 @@ namespace Vls.CodeHelp {
         if (variable_sym.initializer != null && show_initializer) {
             Vala.ForeachStatement? foreach_statement = null;
             if (variable_sym is Vala.LocalVariable) {
-                for (Vala.CodeNode? current_node = variable_sym; current_node != null; current_node = current_node.parent_node) {
+                for (Vala.CodeNode? current_node = variable_sym;
+                     current_node != null; current_node = current_node.parent_node) {
                     foreach_statement = current_node as Vala.ForeachStatement;
                     if (foreach_statement != null) {
                         break;
@@ -574,16 +600,18 @@ namespace Vls.CodeHelp {
                 builder.append (get_code_node_source (variable_sym.initializer));
             }
         }
-        return builder.str;       
+        return builder.str;
     }
 
     /**
      * Get a representation of a property
      */
-    private string get_property_representation (Vala.DataType? data_type, Vala.List<Vala.DataType>? method_type_arguments,
+    private string get_property_representation (Vala.DataType? data_type,
+                                                  Vala.List<Vala.DataType>? method_type_arguments,
                                                 Vala.Property property_sym,
                                                 Vala.Scope? scope, bool allow_show_parent_member, bool show_initializer) {
-        var actual_property_type = property_sym.property_type.get_actual_type (data_type, method_type_arguments, property_sym);
+        var actual_property_type = property_sym.property_type.get_actual_type
+            (data_type, method_type_arguments, property_sym);
         var builder = new StringBuilder ();
 
         if (data_type == null && !(property_sym.parent_symbol is Vala.Namespace)) {
@@ -611,7 +639,9 @@ namespace Vls.CodeHelp {
             if (property_sym.parent_symbol is Vala.TypeSymbol) {
                 Vala.List<Vala.DataType>? parent_type_arguments = null;
                 if (data_type != null)
-                    parent_type_arguments = get_actual_type_arguments_for_parent_symbol (data_type, (Vala.TypeSymbol)property_sym.parent_symbol);
+                    parent_type_arguments
+                        = get_actual_type_arguments_for_parent_symbol
+                            (data_type, (Vala.TypeSymbol)property_sym.parent_symbol);
                 string? parent_symbol_representation =
                     get_symbol_representation (null, property_sym.parent_symbol, scope, allow_show_parent_member, parent_type_arguments, null, false, true);
                 builder.append (parent_symbol_representation);
@@ -682,7 +712,7 @@ namespace Vls.CodeHelp {
      * @param data_type either the data type containing the symbol, or the parent data type, or null if none
      * @param sym the symbol to represent (can be null if data_type is non-null)
      */
-    public string? get_symbol_representation (Vala.DataType? data_type, Vala.Symbol? sym, 
+    public string? get_symbol_representation (Vala.DataType? data_type, Vala.Symbol? sym,
                                               Vala.Scope? scope,
                                               bool allow_show_parent_member,
                                               Vala.List<Vala.DataType>? method_type_arguments = null,
@@ -769,7 +799,7 @@ namespace Vls.CodeHelp {
                         base_types = ((Vala.Class)sym).get_base_types ();
                     else if (sym is Vala.Interface)
                         base_types = ((Vala.Interface)sym).get_prerequisites ();
-                    
+
                     i = 1;
                     if (!base_types.is_empty)
                         builder.append (": ");
@@ -825,7 +855,7 @@ namespace Vls.CodeHelp {
 
         if (sym is Vala.Callable)
             return get_callable_representation (data_type, method_type_arguments, (Vala.Callable)sym, scope, show_initializers, allow_show_parent_member, override_name, is_parent_symbol, ellipsis_overrides);
-        
+
         if (sym is Vala.Parameter && ((Vala.Parameter)sym).ellipsis)
             return "...";
 
@@ -839,7 +869,7 @@ namespace Vls.CodeHelp {
 
         if (sym is Vala.Property)
             return get_property_representation (data_type, method_type_arguments, (Vala.Property)sym, scope, allow_show_parent_member, show_initializers);
-        
+
         if (sym is Vala.Constant)
             return get_constant_representation (data_type, (Vala.Constant)sym, scope);
 
@@ -864,12 +894,13 @@ namespace Vls.CodeHelp {
 
         if ((cname = sym.get_attribute_string ("CCode", "cname")) != null)
             return cname;
-        
+
         var cname_sb = new StringBuilder ();
         bool to_snake_case = is_snake_case_symbol (sym);
         bool all_caps = sym is Vala.EnumValue || sym is Vala.ErrorCode || sym is Vala.Constant;
 
-        for (var current_sym = sym; current_sym != null && current_sym.name != null; current_sym = current_sym.parent_symbol) {
+        for (var current_sym = sym; current_sym != null && current_sym.name != null;
+             current_sym = current_sym.parent_symbol) {
             string component = current_sym.name;
             if (current_sym is Vala.CreationMethod) {
                 if (component == ".new")
@@ -931,11 +962,13 @@ namespace Vls.CodeHelp {
     }
 
     static bool base_method_requires_override (Vala.Method m) {
-        return m.is_virtual || m.is_abstract && m.parent_symbol is Vala.Class && ((Vala.Class)m.parent_symbol).is_abstract;
+        return m.is_virtual || m.is_abstract
+            && m.parent_symbol is Vala.Class && ((Vala.Class)m.parent_symbol).is_abstract;
     }
 
     static bool base_property_requires_override (Vala.Property p) {
-        return p.is_virtual || p.is_abstract && p.parent_symbol is Vala.Class && ((Vala.Class)p.parent_symbol).is_abstract;
+        return p.is_virtual || p.is_abstract
+            && p.parent_symbol is Vala.Class && ((Vala.Class)p.parent_symbol).is_abstract;
     }
 
     /**
@@ -989,7 +1022,8 @@ namespace Vls.CodeHelp {
     /**
      * Get base virtual/abstract methods and properties that haven't been overridden.
      */
-    Vala.List<Pair<Vala.DataType?,Vala.Symbol>> gather_base_virtual_symbols_not_overridden (Vala.ObjectTypeSymbol tsym) {
+    Vala.List<Pair<Vala.DataType?,Vala.Symbol>> gather_base_virtual_symbols_not_overridden
+        (Vala.ObjectTypeSymbol tsym) {
         var implemented_symbols = new Vala.ArrayList<Vala.Symbol> ();
         var virtual_symbols = new Vala.ArrayList<Pair<Vala.DataType?,Vala.Symbol>> ();
         var base_types = new Vala.ArrayList<Vala.DataType> ();
@@ -1056,10 +1090,11 @@ namespace Vls.CodeHelp {
 
     /**
      * Taken from `Vala.Class.check ()` in `vala/valaclass.vala`
-     * @param doc the current document 
+     * @param doc the current document
      * @param csym the class symbol
      */
-    Pair<Vala.List<Vala.DataType>, Vala.List<Pair<Vala.DataType, Vala.Symbol>>> gather_missing_prereqs_and_unimplemented_symbols (Vala.Class csym) {
+    Pair<Vala.List<Vala.DataType>, Vala.List<Pair<Vala.DataType, Vala.Symbol>>>
+        gather_missing_prereqs_and_unimplemented_symbols (Vala.Class csym) {
         /* gather all prerequisites */
         var prerequisites = new Vala.ArrayList<Vala.DataType> ((dt1, dt2) => dt1.equals (dt2));
         foreach (Vala.DataType base_type in csym.get_base_types ()) {
@@ -1182,7 +1217,8 @@ namespace Vls.CodeHelp {
             }
         }
 
-        return new Pair<Vala.List<Vala.DataType>, Vala.List<Pair<Vala.DataType, Vala.Symbol>>> (missing_prereqs, missing_symbols);
+        return new Pair<Vala.List<Vala.DataType>, Vala.List<Pair<Vala.DataType, Vala.Symbol>>>
+            (missing_prereqs, missing_symbols);
     }
 
     /**

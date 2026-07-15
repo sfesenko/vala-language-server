@@ -39,15 +39,15 @@ namespace Vls.TypeHierarchy {
                 var compilation_type_symbol = SymbolReferences.find_matching_symbol (pair.first.code_context, symbol);
                 Vala.CodeContext.push (pair.first.code_context);
                 var result = new NodeSearch.with_filter (
-                    source_file, 
-                    compilation_type_symbol, 
+                    source_file,
+                    compilation_type_symbol,
                     (needle, node) => {
                         if (needle is ObjectTypeSymbol && node is ObjectTypeSymbol)
                             return node != needle && ((ObjectTypeSymbol)node).is_subtype_of ((ObjectTypeSymbol)needle);
                         if (needle is Struct && node is Struct)
                             return ((Struct)node).base_struct == (Struct)needle;
                         return false;
-                    }, 
+                    },
                     true
                 ).result;
                 foreach (var node in result)

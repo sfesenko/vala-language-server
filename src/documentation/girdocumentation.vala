@@ -29,7 +29,8 @@ class Vls.GirDocumentation {
         return source_file1.filename == source_file2.filename;
     }
 
-    private HashTable<Vala.SourceFile, string> gtkdoc_dirs = new HashTable<Vala.SourceFile, string> (source_file_hash, source_file_equal);
+    private HashTable<Vala.SourceFile, string> gtkdoc_dirs
+        = new HashTable<Vala.SourceFile, string> (source_file_hash, source_file_equal);
 
     private bool requires_rebuild;
 
@@ -217,7 +218,7 @@ class Vls.GirDocumentation {
                     var sym_sb = new StringBuilder ();
                     Vala.Symbol? previous_sym = null;
                     for (var current_sym = vala_symbol;
-                            current_sym != null && current_sym.name != null; 
+                            current_sym != null && current_sym.name != null;
                             current_sym = current_sym.parent_symbol) {
                         if (current_sym is Vala.CreationMethod) {
                             sym_sb.prepend (current_sym.name == ".new" ? current_sym.parent_symbol.name : current_sym.name);
@@ -294,7 +295,7 @@ class Vls.GirDocumentation {
                 result.append ("```");
                 return false;
             });
-        
+
         string? gtkdoc_dir = null;
 
         if (gtkdoc_dirs.contains (comment.source_reference.file))
@@ -304,7 +305,7 @@ class Vls.GirDocumentation {
             data_dir = (!) data_dir.get_parent ();
             if (data_dir.get_basename () == "gir-1.0")
                 data_dir = (!) data_dir.get_parent ();
-            
+
             var gtkdoc_dir_file = data_dir.get_child ("gtk-doc").get_child ("html");
             string? gir_package_name = comment.source_reference.file.package_name;
 
@@ -450,7 +451,7 @@ class Vls.GirDocumentation {
                     var sym_sb = new StringBuilder ();
                     Vala.Symbol? previous_sym = null;
                     for (var current_sym = vala_symbol;
-                            current_sym != null && current_sym.name != null; 
+                            current_sym != null && current_sym.name != null;
                             current_sym = current_sym.parent_symbol) {
                         if (current_sym is Vala.CreationMethod) {
                             sym_sb.prepend (current_sym.name == ".new" ? current_sym.parent_symbol.name : current_sym.name);
@@ -513,7 +514,7 @@ class Vls.GirDocumentation {
                 }
                 return false;
             });
-        
+
         // substitute references to struct fields that are C virtual methods
         comment_data = /#(\w+)Class\.(\w+)(\(\))?/
             .replace_eval (comment_data, comment_data.length, 0, 0, (match_info, result) => {
@@ -548,7 +549,7 @@ class Vls.GirDocumentation {
 
                 return false;
             });
-        
+
         // highlight references to parameters and other symbols
         comment_data = /(?<=\s|^|(?<!\w)\W)@([A-Za-z_]\w*)(?=\s|$|[^a-zA-Z0-9_.]|\.(?!\w))/
             .replace_eval (comment_data, comment_data.length, 0, 0, (match_info, result) => {
