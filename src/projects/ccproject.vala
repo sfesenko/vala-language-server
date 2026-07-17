@@ -39,7 +39,8 @@ class Vls.CcProject : Project {
         debug ("CcProject: configuring in build dir %s ...", build_dir);
 
         if (!build_files.has_key (cc_json_file)) {
-            debug ("CcProject: obtaining a new file monitor for %s ...", cc_json_file.get_path ());
+            debug ("CcProject: obtaining a new file monitor for %s ...",
+                     Util.project_path (cc_json_file.get_path ()));
             FileMonitor file_monitor = cc_json_file.monitor_file (FileMonitorFlags.NONE, cancellable);
             file_monitor.changed.connect (file_changed_event);
             build_files[cc_json_file] = file_monitor;

@@ -75,14 +75,12 @@ abstract class Vls.Project : Object {
                     consumers_of[file_consumed] = new HashSet<BuildTarget> ();
                 consumers_of[file_consumed].add (btarget);
                 is_consumer_or_producer = true;
-                debug ("\t- %s consumes %s", btarget.id, file_consumed.get_path ());
             }
             foreach (var file_produced in btarget.output) {
                 if (!producers_for.has_key (file_produced))
                     producers_for[file_produced] = new HashSet<BuildTarget> ();
                 producers_for[file_produced].add (btarget);
                 is_consumer_or_producer = true;
-                debug ("\t- %s produces %s", btarget.id, file_produced.get_path ());
             }
             if (!is_consumer_or_producer) {
                 if (!(btarget is BuildTask))
@@ -95,6 +93,9 @@ abstract class Vls.Project : Object {
             if (btarget is BuildTask)
                 unknown.add ((BuildTask) btarget);
         }
+
+        debug ("Project: analyzed %d targets (%d consumers, %d producers)",
+               build_targets.size, consumers_of.size, producers_for.size);
 
         // 2. For those in the 'unknown' category, attempt to guess whether
         //    they are producers or consumers. For each file of each target,
@@ -222,7 +223,8 @@ abstract class Vls.Project : Object {
                 File? parent = file.get_parent ();
                 if (parent != null && parent.query_file_type (FileQueryInfoFlags.NONE) == FileType.DIRECTORY) {
                     if (!monitored_files.has_key (parent)) {
-                        debug ("Project: obtaining a new file monitor for %s ...", parent.get_path ());
+                        debug ("Project: obtaining a new file monitor for %s ...",
+                                 Util.project_path (parent.get_path ()));
                         FileMonitor file_monitor = parent.monitor_directory (FileMonitorFlags.NONE, cancellable);
                         file_monitor.changed.connect (file_changed_event);
                         monitored_files[parent] = file_monitor;

@@ -60,9 +60,6 @@ namespace Vls {
             if (emitted_tokens.contains (key))
                 return false;
             emitted_tokens.add (key);
-            if (tokens.size < 10)
-                debug ("[SEMTOK] emit: line=%u, char=%u, len=%u, type=%u, mod=%u",
-                       line, character, length, token_type, modifiers);
             var token = new SemanticToken ();
             token.line = line;
             token.character = character;
@@ -83,8 +80,6 @@ namespace Vls {
             uint length = (uint) (end.column - begin.column + 1);
             if (length == 0)
                 length = 1;
-            debug ("[SEMTOK] add_token: line=%u, char=%u, len=%u, type=%u, mod=%u",
-                   line, character, length, token_type, modifiers);
             try_emit_token (line, character, length, token_type, modifiers);
         }
 
@@ -109,8 +104,9 @@ namespace Vls {
             string text = content[from:to];
             int name_start = Util.find_name_in_text (text, name);
             if (name_start < 0) {
-                debug ("[SEMTOK] add_name_token: name '%s' not found in text for node=%s",
-                       name, node.type_name);
+                if (name[0] != '.' && name[0] != '_')
+                    debug ("[SEMTOK] add_name_token: name '%s' not found in text for node=%s",
+                           name, node.type_name);
                 return;
             }
             uint line = (uint) (sr.begin.line - 1);

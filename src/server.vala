@@ -135,6 +135,12 @@ class Vls.Server : Jsonrpc.Server {
                 cancel_request (client, parameters);
                 break;
 
+            case "$/setTrace":
+                // LSP notification: client informs about trace level.
+                // Supported levels: "off", "messages", "verbose".
+                // Currently unused but handled to suppress warning.
+                break;
+
             case "textDocument/didOpen":
                 text_document_did_open (client, parameters);
                 break;
@@ -853,8 +859,8 @@ class Vls.Server : Jsonrpc.Server {
      * the right conditions to call `on_context_updated_func ()`.
      */
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func) {
-        debug ("[SEMTOK] wait_for_context_update: requests=%d, pending=%d",
-               (int) update_context_requests, pending_requests.size);
+        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d",
+               id.print (false), (int) update_context_requests, pending_requests.size);
         // we've already updated the context
         if (update_context_requests == 0)
             on_context_updated_func (false);
@@ -897,7 +903,7 @@ class Vls.Server : Jsonrpc.Server {
     void publish_diagnostics (Project project, Compilation target, Jsonrpc.Client client) {
         var diags_without_source = new Json.Array ();
 
-        debug ("publishing diagnostics for Compilation target %s", target.id);
+        debug ("publishing diagnostics for %s", target.name);
 
         var doc_diags = new HashMap<Vala.SourceFile, Json.Array?> ();
         foreach (var file in target.code_context.get_source_files ())

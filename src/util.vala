@@ -644,4 +644,19 @@ namespace Vls.Util {
                 return false;
         }
     }
+
+    /**
+     * Replace absolute path with $PROJECT prefix for log readability.
+     */
+    public static string project_path (string path) {
+        return path.replace (Environment.get_current_dir (), "$PROJECT");
+    }
+
+    /**
+     * Convert a file:// URI to $PROJECT/relative/path for log readability.
+     */
+    public static string project_uri (string uri) {
+        return "$PROJECT/" + Uri.unescape_string (uri)
+            .replace (Environment.get_current_dir (), "");
+    }
 }

@@ -141,6 +141,7 @@ class Vls.Compilation : BuildTarget {
             }
         }
 
+        int ignored_args = 0;
         for (int arg_i = -1; (arg_i = Util.iterate_valac_args (args, out flag_name, out arg_value, arg_i)) < args.length;) {
             if (flag_name == "pkg") {
                 _packages.add (arg_value);
@@ -198,9 +199,12 @@ class Vls.Compilation : BuildTarget {
                     input.add (file_from_arg);
                 }
             } else if (flag_name != "directory") {
-                debug ("Compilation(%s) ignoring argument #%d (%s)", id, arg_i, args[arg_i]);
+                ignored_args++;
             }
         }
+
+        if (ignored_args > 0)
+            debug ("Compilation(%s): ignored %d arguments", id, ignored_args);
 
         for (int i = 0; i < sources.length; i++) {
             unowned string source = sources[i];
@@ -441,14 +445,15 @@ class Vls.Compilation : BuildTarget {
         foreach (TextDocument doc in _project_sources.values) {
             if (doc.last_updated.compare (last_updated) > 0) {
                 debug ("[SEMTOK] build_if_stale: stale due to %s (lu=%s > comp_lu=%s)",
-                       doc.filename, doc.last_updated.to_string (), last_updated.to_string ());
+                       Util.project_path (doc.filename),
+                       doc.last_updated.to_string (), last_updated.to_string ());
                 stale = true;
                 break;
             }
         }
-        debug ("[SEMTOK] build_if_stale: stale=%s, updated_file=%s, first_compile=%s",
-               stale.to_string (), updated_file.to_string (), (!_completed_first_compile).to_string ());
         if (stale || !_completed_first_compile) {
+            debug ("[SEMTOK] build_if_stale: recompiling%s%s",
+                   stale ? " (stale)" : "", !_completed_first_compile ? " (first compile)" : "");
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
             // TODO: cancellable compilation

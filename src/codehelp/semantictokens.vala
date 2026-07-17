@@ -134,7 +134,8 @@ namespace Vls.SemanticTokensHandler {
     void full (Server server, Jsonrpc.Client client, string method,
                Variant id, Variant @params) {
         var p = Util.parse_variant<SemanticTokensParams> (@params);
-        debug ("[SEMTOK] full request: uri=%s", p.textDocument.uri);
+        debug ("[SEMTOK] full request: %s",
+               Util.project_uri (p.textDocument.uri));
 
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
@@ -191,7 +192,8 @@ namespace Vls.SemanticTokensHandler {
     void range (Server server, Jsonrpc.Client client, string method,
                 Variant id, Variant @params) {
         var p = Util.parse_variant<SemanticTokensRangeParams> (@params);
-        debug ("[SEMTOK] range request: uri=%s", p.textDocument.uri);
+        debug ("[SEMTOK] range request: %s",
+               Util.project_uri (p.textDocument.uri));
 
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {

@@ -285,7 +285,8 @@ class Vls.MesonProject : Project {
         // 1. configure new build directory
         var root_meson_build = File.new_build_filename (root_path, "meson.build");
         if (!meson_build_files.has_key (root_meson_build)) {
-            debug ("obtaining a new file monitor for %s ...", root_meson_build.get_path ());
+            debug ("obtaining a new file monitor for %s ...",
+                     Util.project_path (root_meson_build.get_path ()));
             FileMonitor file_monitor = root_meson_build.monitor_file (FileMonitorFlags.NONE, cancellable);
             file_monitor.changed.connect (file_changed_event);
             meson_build_files[root_meson_build] = file_monitor;
@@ -599,7 +600,8 @@ class Vls.MesonProject : Project {
             // finally, monitor the file that this build target was defined in
             var defined_in = File.new_for_path (meson_target_info.defined_in);
             if (!meson_build_files.has_key (defined_in)) {
-                debug ("obtaining a new file monitor for %s ...", defined_in.get_path ());
+                debug ("obtaining a new file monitor for %s ...",
+                         Util.project_path (defined_in.get_path ()));
                 FileMonitor file_monitor = defined_in.monitor_file (FileMonitorFlags.NONE, cancellable);
                 file_monitor.changed.connect (file_changed_event);
                 meson_build_files[defined_in] = file_monitor;
@@ -734,7 +736,8 @@ class Vls.MesonProject : Project {
                 if (path != null && (path.has_suffix ("meson.build") || path.has_suffix ("meson_options.txt"))) {
                     var build_file = File.new_for_path ((!) path);
                     if (!meson_build_files.has_key (build_file)) {
-                        debug ("obtaining a new file monitor for %s ...", build_file.get_path ());
+                        debug ("obtaining a new file monitor for %s ...",
+                                 Util.project_path (build_file.get_path ()));
                         try {
                             FileMonitor file_monitor = build_file.monitor_file (FileMonitorFlags.NONE, cancellable);
                             file_monitor.changed.connect (file_changed_event);
