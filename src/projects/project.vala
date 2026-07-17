@@ -119,14 +119,14 @@ abstract class Vls.Project : Object {
                     consumers_of[file].add (btask);
                     btask.input.add (file);
                     files_categorized.add (file);
-                    debug ("\t- %s consumes %s", btask.id, file.get_path ());
+                    debug ("\t- %s consumes %s", btask.id, Util.project_path (file.get_path ()));
                 } else if (consumers_of.has_key (file)) {
                     if (!producers_for.has_key (file))
                         producers_for[file] = new HashSet<BuildTarget> ();
                     producers_for[file].add (btask);
                     btask.output.add (file);
                     files_categorized.add (file);
-                    debug ("\t- %s produces %s", btask.id, file.get_path ());
+                    debug ("\t- %s produces %s", btask.id, Util.project_path (file.get_path ()));
                 }
             }
             btask.used_files.remove_all (files_categorized);
@@ -150,7 +150,7 @@ abstract class Vls.Project : Object {
                 }
                 producers_for[uncategorized_file].add (btask);
                 btask.output.add (uncategorized_file);
-                debug ("\t- %s produces %s", btask.id, uncategorized_file.get_path ());
+                debug ("\t- %s produces %s", btask.id, Util.project_path (uncategorized_file.get_path ()));
             }
             btask.used_files.clear ();
         }
@@ -241,15 +241,15 @@ abstract class Vls.Project : Object {
             return;
 
         if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            debug ("Project: watched file %s had an attribute changed", src.get_path ());
+            debug ("Project: watched file %s had an attribute changed", Util.project_path (src.get_path ()));
             changed ();
         }
         if (FileMonitorEvent.CHANGED in event_type) {
-            debug ("Project: watched file %s was changed", src.get_path ());
+            debug ("Project: watched file %s was changed", Util.project_path (src.get_path ()));
             changed ();
         }
         if (FileMonitorEvent.DELETED in event_type) {
-            debug ("Project: watched file %s was deleted", src.get_path ());
+            debug ("Project: watched file %s was deleted", Util.project_path (src.get_path ()));
             // remove this file monitor since the file was deleted
             FileMonitor file_monitor;
             if (monitored_files.unset (src, out file_monitor)) {

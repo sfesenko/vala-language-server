@@ -176,6 +176,42 @@ void test_delta_encode () {
     assert (result[14] == 1);
 }
 
+void test_project_path () {
+    var cwd = Environment.get_current_dir ();
+
+    // Path inside the project — replaced with $PROJECT
+    var inside = GLib.Path.build_filename (cwd, "src", "file.vala");
+    assert (project_path (inside) == "$PROJECT/src/file.vala");
+
+    // Path equal to project root
+    assert (project_path (cwd) == "$PROJECT");
+
+    // Path outside the project — unchanged
+    assert (project_path ("/nonexistent/__vls_test__") == "/nonexistent/__vls_test__");
+
+    // Empty string — unchanged
+    assert (project_path ("") == "");
+}
+
+void test_project_uri () {
+    var cwd = Environment.get_current_dir ();
+
+    // file:// URI inside the project
+    var uri = "file://" + cwd + "/src/file.vala";
+    assert (project_uri (uri) == "$PROJECT/src/file.vala");
+
+    // file:// URI outside the project — returns path without $PROJECT
+    assert (project_uri ("file:///nonexistent/__vls_test__.vala")
+            == "/nonexistent/__vls_test__.vala");
+
+    // Non-file URI — returns as-is
+    assert (project_uri ("untitled:Untitled-1") == "untitled:Untitled-1");
+
+    // Percent-encoded path inside the project
+    var encoded = "file://" + cwd + "/src/file%20name.vala";
+    assert (project_uri (encoded) == "$PROJECT/src/file name.vala");
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/vls/util/compare_versions", test_compare_versions);
@@ -189,5 +225,8 @@ int main (string[] args) {
     Test.add_func ("/vls/util/line_byte_length", test_line_byte_length);
     Test.add_func ("/vls/util/is_decl_keyword", test_is_decl_keyword);
     Test.add_func ("/vls/util/delta_encode", test_delta_encode);
+    Test.add_func ("/vls/util/project_path", test_project_path);
+    Test.add_func ("/vls/util/project_uri", test_project_uri);
+    Vls.Util.set_project_root (Environment.get_current_dir ());
     return Test.run ();
 }

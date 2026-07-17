@@ -37,7 +37,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? file = server.find_file (p.textDocument.uri, out compilation, out project);
             if (file == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -98,7 +98,7 @@ namespace Vls.Navigation {
                 best = SymbolReferences.find_real_symbol (project, (Vala.Symbol) best);
 
             var location = new Location.from_sourceref (best.source_reference);
-            debug ("[textDocument/definition] found location ... %s", location.uri);
+            debug ("[textDocument/definition] found location ... %s", Util.project_uri (location.uri));
             try {
                 client.reply (id, Util.object_to_variant (location), Server.cancellable);
             } catch (Error e) {
@@ -152,7 +152,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -248,7 +248,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }

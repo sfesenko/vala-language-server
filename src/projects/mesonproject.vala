@@ -204,7 +204,7 @@ class Vls.MesonProject : Project {
         // first, try to load the file in ${build_dir}/meson-info/intro-${command}.json
         try {
             var input_file = File.new_build_filename (build_dir, "meson-info", @"intro-$command.json");
-            debug ("loading file %s ...", input_file.get_path ());
+            debug ("loading file %s ...", Util.project_path (input_file.get_path ()));
             parser.load_from_stream (input_file.read (cancellable), cancellable);
         } catch (IOError e) {
             if (e is IOError.NOT_FOUND) {
@@ -407,7 +407,7 @@ class Vls.MesonProject : Project {
                     if (root_dir.get_relative_path (input_file) == input_file.get_basename () &&
                         !input_file.query_exists (cancellable)) {
                         input_file = File.new_build_filename (root_path, src_relative_path, input_file.get_basename ());
-                        debug ("fixed %s source: from %s --> %s", compiler_name, source, input_file.get_path ());
+                        debug ("fixed %s source: from %s --> %s", compiler_name, source, Util.project_path (input_file.get_path ()));
                     }
                     fixed_sources.add (input_file.get_path ());
                 }
@@ -612,7 +612,7 @@ class Vls.MesonProject : Project {
         //    about target inputs and outputs
         var ccs_parser = new Json.Parser.immutable_new ();
         var ccs_file = File.new_build_filename (build_dir, "compile_commands.json");
-        debug ("loading file %s ...", ccs_file.get_path ());
+        debug ("loading file %s ...", Util.project_path (ccs_file.get_path ()));
         ccs_parser.load_from_stream (ccs_file.read (cancellable), cancellable);
         Json.Node? ccs_json_root = ccs_parser.get_root ();
         // don't fail hard if we can't read compile_commands.json
@@ -804,17 +804,17 @@ class Vls.MesonProject : Project {
 
     private void file_changed_event (File src, File? dest, FileMonitorEvent event_type) {
         if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            debug ("watched file %s had an attribute changed", src.get_path ());
+            debug ("watched file %s had an attribute changed", Util.project_path (src.get_path ()));
             build_files_have_changed = true;
             changed ();
         }
         if (FileMonitorEvent.CHANGED in event_type) {
-            debug ("watched file %s was changed", src.get_path ());
+            debug ("watched file %s was changed", Util.project_path (src.get_path ()));
             build_files_have_changed = true;
             changed ();
         }
         if (FileMonitorEvent.DELETED in event_type) {
-            debug ("watched file %s was deleted", src.get_path ());
+            debug ("watched file %s was deleted", Util.project_path (src.get_path ()));
             // remove this file monitor since the file was deleted
             FileMonitor file_monitor;
             if (meson_build_files.unset (src, out file_monitor)) {

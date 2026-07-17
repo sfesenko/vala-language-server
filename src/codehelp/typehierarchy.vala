@@ -100,7 +100,7 @@ namespace Vls.TypeHierarchy {
         Compilation compilation;
         var doc = server.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             Server.reply_null (id, client, method);
             return;
         }
@@ -158,7 +158,7 @@ namespace Vls.TypeHierarchy {
         Compilation compilation;
         Vala.SourceFile? doc = server.find_file (item.uri, out compilation, out project);
         if (doc == null) {
-            debug ("[%s] file `%s' not found", method, item.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
             Server.reply_null (id, client, method);
             return;
         }

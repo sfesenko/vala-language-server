@@ -5,6 +5,7 @@ vls_src = files([
   'analysis/inlayhintnodes.vala',
   'analysis/semantictokensanalyzer.vala',
   'analysis/symbolenumerator.vala',
+  'analysis/templatenodes.vala',
   'codeaction/addotherconstantstoswitchaction.vala',
   'codeaction/adddefaulttoswitchaction.vala',
   'codeaction/baseconverteraction.vala',

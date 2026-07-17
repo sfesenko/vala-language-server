@@ -35,7 +35,7 @@ namespace Vls.DocumentSymbolHandler {
             Project project;
             Vala.SourceFile? file = server.find_file (p.textDocument.uri, out compilation, out project);
             if (file == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }

@@ -22,6 +22,8 @@ using Gee;
 
 class Vls.Server : Jsonrpc.Server {
     private static bool received_signal = false;
+    public static Server instance { get; private set; }
+    public Lsp.TraceValue trace { get; set; default = Lsp.TraceValue.VERBOSE; }
     MainLoop loop;
 
     public InitializeParams init_params;
@@ -78,6 +80,7 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     public Server (MainLoop loop) {
+        Server.instance = this;
         this.loop = loop;
 
         // hack to prevent other things from corrupting JSON-RPC pipe:
@@ -136,9 +139,9 @@ class Vls.Server : Jsonrpc.Server {
                 break;
 
             case "$/setTrace":
-                // LSP notification: client informs about trace level.
-                // Supported levels: "off", "messages", "verbose".
-                // Currently unused but handled to suppress warning.
+                string? trace_value = null;
+                parameters.lookup ("value", "s", out trace_value);
+                trace = Lsp.TraceValue.parse (trace_value);
                 break;
 
             case "textDocument/didOpen":
@@ -372,6 +375,7 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
         string root_path = Util.realpath ((!) root_dir.get_path ());
+        Util.set_project_root (root_path);
         debug (@"[initialize] root path is $root_path");
 
         // respond
@@ -565,7 +569,7 @@ class Vls.Server : Jsonrpc.Server {
                 break;
             } catch (Error e) {
                 if (!(e is ProjectError.NOT_FOUND))
-                    warning ("[textDocument/didOpen] failed to open %s - %s", Uri.unescape_string (uri), e.message);
+                    warning ("[textDocument/didOpen] failed to open %s - %s", Util.project_uri (uri), e.message);
             }
         }
 
@@ -580,7 +584,7 @@ class Vls.Server : Jsonrpc.Server {
                 // show diagnostics for the newly-opened file
                 request_context_update (client);
             } catch (Error e) {
-                warning ("[textDocumnt/didOpen] failed to open %s - %s", Uri.unescape_string (uri), e.message);
+                warning ("[textDocumnt/didOpen] failed to open %s - %s", Util.project_uri (uri), e.message);
             }
         }
 
@@ -597,11 +601,11 @@ class Vls.Server : Jsonrpc.Server {
             doc.get_mapped_contents ();
         if (doc is TextDocument) {
             var tdoc = (TextDocument) doc;
-            debug (@"[textDocument/didOpen] opened $(Uri.unescape_string (uri))");
+            debug (@"[textDocument/didOpen] opened $(Util.project_uri (uri))");
             tdoc.last_saved_content = fileContents;
             bool content_changed = tdoc.content != fileContents;
             debug ("[SEMTOK] didOpen: uri=%s, content_len=%d, content_changed=%s",
-                   Uri.unescape_string (uri), fileContents.length, content_changed.to_string ());
+                   Util.project_uri (uri), fileContents.length, content_changed.to_string ());
             if (content_changed) {
                 tdoc.content = fileContents;
                 tdoc.last_updated = new DateTime.now ();
@@ -610,7 +614,7 @@ class Vls.Server : Jsonrpc.Server {
                 debug ("[textDocument/didOpen] requested context update");
             }
         } else {
-            debug (@"[textDocument/didOpen] opened read-only $(Uri.unescape_string (uri))");
+            debug (@"[textDocument/didOpen] opened read-only $(Util.project_uri (uri))");
         }
 
         // add document to open list
@@ -640,7 +644,7 @@ class Vls.Server : Jsonrpc.Server {
 
                 // make checkpoint
                 text_document.last_saved_content = text_document.content;
-                debug ("[textDocument/didSave] last save of %s is now at version %d", uri, text_document.last_saved_version);
+                debug ("[textDocument/didSave] last save of %s is now at version %d", Util.project_uri (uri), text_document.last_saved_version);
             }
         }
     }
@@ -664,10 +668,10 @@ class Vls.Server : Jsonrpc.Server {
                     request_context_update (client);
                     debug ("[textDocument/didClose] requested context update");
                 }
-                debug ("[textDocument/didClose] closed %s", uri);
+                debug ("[textDocument/didClose] closed %s", Util.project_uri (uri));
             } catch (Error e) {
                 if (!(e is ProjectError.NOT_FOUND))
-                    warning ("[textDocument/didClose] failed to close %s - %s", Uri.unescape_string (uri), e.message);
+                    warning ("[textDocument/didClose] failed to close %s - %s", Util.project_uri (uri), e.message);
             }
         }
     }
@@ -697,7 +701,7 @@ class Vls.Server : Jsonrpc.Server {
 
                 var source = (TextDocument) source_file;
                 if (source.version >= version) {
-                    warning (@"[textDocument/didChange] rejecting outdated version of $(Uri.unescape_string (uri))");
+                    warning (@"[textDocument/didChange] rejecting outdated version of $(Util.project_uri (uri))");
                     return;
                 }
 
@@ -781,7 +785,7 @@ class Vls.Server : Jsonrpc.Server {
                                     try {
                                         default_project.close (uri);
                                         discarded_files.add (uri);
-                                        debug ("discarding %s from DefaultProject", uri);
+                                        debug ("discarding %s from DefaultProject", Util.project_uri (uri));
                                     } catch (Error e) {
                                         // just ignore
                                     }
@@ -1137,7 +1141,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile? file = find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
@@ -1155,7 +1159,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile file = find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
@@ -1172,7 +1176,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? source_file = find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
@@ -1206,7 +1210,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? source_file = find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
-            debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
@@ -1249,7 +1253,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? file = find_file (uri, out compilation, out project);
         if (file == null) {
-            debug ("[%s] file `%s' not found", method, uri);
+            debug ("[%s] file `%s' not found", method, Util.project_uri (uri));
             reply_null (id, client, method);
             return;
         }
@@ -1293,6 +1297,22 @@ private static string log_level_name (LogLevelFlags levels) {
 }
 
 void vls_log_handler (string? domain, LogLevelFlags levels, string message) {
+    var sv = Vls.Server.instance;
+    if (sv != null) {
+        bool is_debug = (levels & LogLevelFlags.LEVEL_DEBUG) != 0;
+        bool is_info = (levels & LogLevelFlags.LEVEL_INFO) != 0;
+        bool is_message = (levels & LogLevelFlags.LEVEL_MESSAGE) != 0;
+        switch (sv.trace) {
+            case Lsp.TraceValue.OFF:
+                if (is_debug || is_info || is_message) return;
+                break;
+            case Lsp.TraceValue.MESSAGES:
+                if (is_debug) return;
+                break;
+            default:
+                break;
+        }
+    }
     var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S");
     var formatted = "%s [%s] %s%s\n".printf (timestamp, log_level_name (levels),
                                               domain != null ? domain + ": " : "", message);

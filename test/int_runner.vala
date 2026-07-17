@@ -33,11 +33,14 @@ int main (string[] args) {
     Test.add_func ("/int/semantic_tokens_full", test_semantic_tokens_full);
     Test.add_func ("/int/semantic_tokens_coverage", test_semantic_tokens_coverage);
     Test.add_func ("/int/semantic_tokens_range", test_semantic_tokens_range);
+    Test.add_func ("/int/semantic_tokens_template_string", test_semantic_tokens_template_string);
+    Test.add_func ("/int/semantic_tokens_delta", test_semantic_tokens_delta);
     Test.add_func ("/int/references", test_references);
     Test.add_func ("/int/document_highlight", test_document_highlight);
     Test.add_func ("/int/inlay_hint", test_inlay_hint);
     Test.add_func ("/int/workspace_symbol", test_workspace_symbol);
     Test.add_func ("/int/formatting", test_formatting);
     Test.add_func ("/int/implementation", test_implementation);
+    Test.add_func ("/int/log_uses_project_path", test_log_uses_project_path);
     return Test.run ();
 }

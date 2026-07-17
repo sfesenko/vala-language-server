@@ -27,6 +27,13 @@ struct DecodedToken {
     uint token_type;
 }
 
+struct FullToken {
+    uint line;
+    uint character;
+    uint length;
+    uint token_type;
+}
+
 Gee.List<DecodedToken?> decode_tokens (Variant data) {
     var result = new Gee.ArrayList<DecodedToken?> ();
     Json.Node json_node = Json.gvariant_serialize (data);
@@ -56,6 +63,42 @@ bool has_token_on_line (Gee.List<DecodedToken?> tokens, uint line, uint token_ty
         if (t.line == line && t.token_type == token_type)
             return true;
     return false;
+}
+
+bool has_token_on_line_full (Gee.List<FullToken?> tokens, uint line, uint token_type) {
+    foreach (var t in tokens)
+        if (t.line == line && t.token_type == token_type)
+            return true;
+    return false;
+}
+
+Gee.List<FullToken?> decode_tokens_full (Variant data) {
+    var result = new Gee.ArrayList<FullToken?> ();
+    Json.Node json_node = Json.gvariant_serialize (data);
+    var json_array = json_node.get_array ();
+    uint n = json_array.get_length ();
+    uint prev_line = 0;
+    uint prev_char = 0;
+    for (uint i = 0; i + 4 < n; i += 5) {
+        uint delta_line = (uint) json_array.get_int_element (i);
+        uint delta_char = (uint) json_array.get_int_element (i + 1);
+        uint len = (uint) json_array.get_int_element (i + 2);
+        uint tok_type = (uint) json_array.get_int_element (i + 3);
+        prev_line += delta_line;
+        prev_char = (delta_line == 0) ? prev_char + delta_char : delta_char;
+        FullToken tok = { prev_line, prev_char, len, tok_type };
+        result.add (tok);
+    }
+    return result;
+}
+
+void assert_no_overlap (Gee.List<FullToken?> tokens) {
+    FullToken? prev = null;
+    foreach (var t in tokens) {
+        if (prev != null && t.line == prev.line)
+            assert (t.character >= prev.character + prev.length);
+        prev = t;
+    }
 }
 
 void test_semantic_tokens_full () {
@@ -329,6 +372,60 @@ void test_semantic_tokens_coverage () {
     assert (has_token (tokens, 67, KEYWORD, 8));
     assert (has_token (tokens, 67, TYPE, 4));
     assert (has_token (tokens, 67, METHOD, 5));
+
+    teardown_session (s);
+}
+
+void test_semantic_tokens_delta () {
+    var s = setup_session (TEMPLATE_STRING_FIXTURE);
+    var h = new Helpers ();
+    // First request a full result so the server stores a previousResultId.
+    Variant? full = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (full != null);
+    Variant? rid = full.lookup_value ("resultId", null);
+    assert (rid != null);
+    string result_id = rid.get_string ();
+
+    // Now request a delta referencing the previous result. This used to crash
+    // the server (invalid GVariant builder in reply_with_tokens).
+    Variant? delta = Helpers.sync_call (s.client, "textDocument/semanticTokens/full/delta", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri)),
+        previousResultId: new Variant.string (result_id)
+    ));
+    assert (delta != null);
+    bool has_edits = delta.lookup_value ("edits", null) != null;
+    bool has_data = delta.lookup_value ("data", null) != null;
+    assert (has_edits || has_data);
+
+    teardown_session (s);
+}
+
+void test_semantic_tokens_template_string () {
+    var s = setup_session (TEMPLATE_STRING_FIXTURE);
+    var h = new Helpers ();
+    Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    Variant? data = res.lookup_value ("data", null);
+    assert (data != null);
+    assert (data.is_of_type (VariantType.ARRAY));
+
+    var tokens = decode_tokens_full (data);
+    assert (tokens.size > 0);
+
+    const uint STRING = 15;
+    const uint PARAMETER = 7;
+
+    // The literal segments of the template must be tokenized as STRING...
+    assert (has_token_on_line_full (tokens, 2, STRING));
+    // ...and the interpolated identifiers must NOT be swallowed by the string
+    // token (they get their own, non-overlapping tokens).
+    assert (has_token_on_line_full (tokens, 2, PARAMETER));
+    // Tokens must never overlap (LSP requirement; violated before the fix).
+    assert_no_overlap (tokens);
 
     teardown_session (s);
 }

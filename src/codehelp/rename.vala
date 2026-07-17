@@ -50,7 +50,7 @@ namespace Vls.Rename {
             Compilation compilation;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -101,10 +101,10 @@ namespace Vls.Rename {
                     if (file in generated_vapis || file in shown_files)
                         continue;
                     var file_references = new Gee.HashMap<Range, Vala.CodeNode> ();
-                    debug ("[%s] looking for references in %s ...", method, file.get_uri ());
+                    debug ("[%s] looking for references in %s ...", method, Util.project_uri (file.get_uri ()));
                     SymbolReferences.list_in_file (project_file, btarget_w_sym.second, true, false, file_references);
                     if (is_abstract_or_virtual) {
-                        debug ("[%s] looking for implementations of abstract/virtual symbol in %s ...", method, file.get_uri ());
+                        debug ("[%s] looking for implementations of abstract/virtual symbol in %s ...", method, Util.project_uri (file.get_uri ()));
                         SymbolReferences.list_implementations_of_virtual_symbol (project_file, btarget_w_sym.second, file_references);
                     }
                     if (!(project_file is TextDocument) && file_references.size > 0) {
@@ -185,7 +185,7 @@ namespace Vls.Rename {
             Compilation compilation;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }

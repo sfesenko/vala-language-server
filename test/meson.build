@@ -25,6 +25,7 @@ integration_src = files([
   'int_editing.vala',
   'int_hierarchy.vala',
   'int_misc.vala',
+  'int_log.vala',
 ])
 
 int_exe = executable('vls-int-test',
@@ -46,6 +47,8 @@ unit_tests = [
   '/vls/util/line_byte_length',
   '/vls/util/is_decl_keyword',
   '/vls/util/delta_encode',
+  '/vls/util/project_path',
+  '/vls/util/project_uri',
 ]
 
 foreach t : unit_tests
@@ -66,14 +69,15 @@ integration_tests = [
   '/int/semantic_tokens_full',
   '/int/semantic_tokens_coverage',
   '/int/semantic_tokens_range',
+  '/int/semantic_tokens_template_string',
+  '/int/semantic_tokens_delta',
   '/int/references',
   '/int/document_highlight',
   '/int/inlay_hint',
   '/int/workspace_symbol',
   '/int/formatting',
   '/int/implementation',
-  '/int/prepare_call_hierarchy',
-  '/int/prepare_type_hierarchy',
+  '/int/log_uses_project_path',
 ]
 
 foreach t : integration_tests

@@ -37,10 +37,33 @@ namespace Vls {
         private HashSet<Vala.CodeNode> visited_nodes = new HashSet<Vala.CodeNode> ();
         private HashSet<string> emitted_tokens = new HashSet<string> ();
 
+        private struct Span {
+            public long start;
+            public long end;
+        }
+
+        // Template literals captured before check() rewrote them, used to emit
+        // STRING tokens for literal segments and to suppress the synthetic
+        // to_string()/concat() member tokens of the replacement chain.
+        private Gee.List<TemplateSpan>? captured_templates;
+        private HashSet<Vala.SourceReference> captured_srs = new HashSet<Vala.SourceReference> ();
+
         public DateTime last_updated { get; set; }
 
-        public SemanticTokensAnalyzer (Vala.SourceFile file) {
+        public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
             this.file = file;
+            this.captured_templates = template_spans;
+            if (template_spans != null) {
+                foreach (var ts in template_spans) {
+                    if (ts.template.file == file)
+                        captured_srs.add (ts.template);
+                    foreach (var expr in ts.expressions) {
+                        var esr = expr.source_reference;
+                        if (esr != null && esr.file == file)
+                            captured_srs.add (esr);
+                    }
+                }
+            }
             debug ("[SEMTOK] analyzer created, file=%s, content_len=%d",
                    file.filename, file.content != null ? file.content.length : 0);
             this.visit_source_file (file);
@@ -83,7 +106,7 @@ namespace Vls {
             try_emit_token (line, character, length, token_type, modifiers);
         }
 
-        private void add_name_token (Vala.CodeNode node, string name, uint token_type, uint modifiers = 0) {
+        private void add_name_token (Vala.CodeNode node, string? name, uint token_type, uint modifiers = 0) {
             if (name == null)
                 return;
             var sr = node.source_reference;
@@ -101,6 +124,10 @@ namespace Vls {
             }
             long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
             long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
+            // Vala's template rewrite can emit synthetic nodes with an inverted
+            // source reference (end before begin); guard against negative slices.
+            if (to < from)
+                return;
             string text = content[from:to];
             int name_start = Util.find_name_in_text (text, name);
             if (name_start < 0) {
@@ -131,6 +158,8 @@ namespace Vls {
                 var content = sr.file.content;
                 long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
                 long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
+                if (to < from)
+                    return;
                 string text = content[from:to];
                 if (text.has_prefix ("owned")) {
                     try_emit_token ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1), 5, SemanticTokenType.KEYWORD, 0);
@@ -195,6 +224,8 @@ namespace Vls {
             var content = sr.file.content;
             long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
             long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
+            if (to < from)
+                return;
             string text = content[from:to];
             uint base_line = (uint) (sr.begin.line - 1);
             uint base_col = (uint) (sr.begin.column - 1);
@@ -218,6 +249,7 @@ namespace Vls {
             if (source_file != file)
                 return;
             source_file.accept_children (this);
+            emit_captured_template_tokens ();
             tokens.sort ((a, b) => {
                 if (a.line != b.line)
                     return (int) a.line - (int) b.line;
@@ -432,7 +464,12 @@ namespace Vls {
                 // Use sr.end to find the member name position, since sr.begin may
                 // point to a different line (multi-line chains like obj\n  .method).
                 var sr = expr.source_reference;
-                if (sr != null && sr.file == file) {
+                // Skip the synthetic to_string()/concat() member accesses that the
+                // compiler inserts when rewriting template literals; their source
+                // reference coincides with a captured interpolation/template span.
+                bool suppress = (member_name == "to_string" || member_name == "concat")
+                                && sr != null && captured_srs.contains (sr);
+                if (!suppress && sr != null && sr.file == file) {
                     var sym = expr.symbol_reference;
                     uint tok_type = Util.sym_token_type (sym);
                     if (tok_type < 255) {
@@ -711,6 +748,109 @@ namespace Vls {
             if (!is_in_file (lit))
                 return;
             add_token (lit.source_reference, SemanticTokenType.STRING);
+        }
+
+        /**
+         * Emits STRING tokens for the literal segments of a template, leaving
+         * gaps (no overlap) where interpolated expressions are.
+         *
+         * @param spans sorted, non-overlapping [start, end) ranges of the
+         *             interpolated expressions, in byte offsets.
+         */
+        private void emit_template_gaps (string content, long t_start, long t_end, Gee.List<Span?> spans) {
+            if (spans.size == 0) {
+                emit_string_segment (content, t_start, t_end);
+                return;
+            }
+            long cursor = t_start;
+            foreach (var span in spans) {
+                if (span.start > cursor)
+                    emit_string_segment (content, cursor, span.start);
+                if (span.end > cursor)
+                    cursor = span.end;
+            }
+            if (t_end > cursor)
+                emit_string_segment (content, cursor, t_end);
+        }
+
+        /**
+         * Re-emits STRING tokens for the literal parts of every template that
+         * was captured before check() rewrote the AST, and tokenizes the
+         * interpolated expressions. The captured expression nodes are accepted
+         * directly so interpolation identifiers are colored correctly whether
+         * or not the original Template node survived check().
+         */
+        private void emit_captured_template_tokens () {
+            if (captured_templates == null)
+                return;
+            var content = file.content;
+            if (content == null)
+                return;
+            foreach (var ts in captured_templates) {
+                if (ts.template.file != file)
+                    continue;
+                var sr = ts.template;
+                long t_start = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+                long t_end = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) sr.end.column);
+                if (t_end <= t_start)
+                    continue;
+
+                var spans = new Gee.ArrayList<Span?> ();
+                foreach (var expr in ts.expressions) {
+                    var esr = expr.source_reference;
+                    if (esr == null || esr.file != file)
+                        continue;
+                    long eb = (long) Util.get_string_pos (content, (uint) (esr.begin.line - 1), (uint) (esr.begin.column - 1));
+                    long ee = (long) Util.get_string_pos (content, (uint) (esr.end.line - 1), (uint) esr.end.column);
+                    if (ee > eb)
+                        spans.add (Span () { start = eb, end = ee });
+                }
+                spans.sort ((a, b) => {
+                    if (a.start < b.start) return -1;
+                    if (a.start > b.start) return 1;
+                    return 0;
+                });
+
+                emit_template_gaps (content, t_start, t_end, spans);
+
+                // Tokenize the interpolated expressions themselves.
+                foreach (var expr in ts.expressions) {
+                    var esr = expr.source_reference;
+                    if (esr == null || esr.file != file)
+                        continue;
+                    expr.accept (this);
+                }
+            }
+        }
+
+        private void emit_string_segment (string content, long start, long end) {
+            if (end <= start)
+                return;
+            long line = 0;
+            long col = 0;
+            for (long i = 0; i < start && i < content.length; i++) {
+                if (content[i] == '\n') {
+                    line++;
+                    col = 0;
+                } else {
+                    col++;
+                }
+            }
+            long pos = start;
+            while (pos < end) {
+                long line_end = pos;
+                while (line_end < end && content[line_end] != '\n')
+                    line_end++;
+                long len = line_end - pos;
+                if (len > 0)
+                    try_emit_token ((uint) line, (uint) col, (uint) len, SemanticTokenType.STRING, 0);
+                pos = line_end;
+                if (pos < end) {
+                    pos++;
+                    line++;
+                    col = 0;
+                }
+            }
         }
 
         public override void visit_integer_literal (Vala.IntegerLiteral lit) {

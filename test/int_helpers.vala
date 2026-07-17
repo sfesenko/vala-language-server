@@ -259,3 +259,10 @@ public class Derived : Base {
     public override void do_it () {}
 }
 """;
+
+const string TEMPLATE_STRING_FIXTURE = """public class Foo {
+    public string build_name (string ns, string ver) {
+        return @"$(ns)-$(ver)";
+    }
+}
+""";

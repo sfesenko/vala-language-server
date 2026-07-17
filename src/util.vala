@@ -645,18 +645,40 @@ namespace Vls.Util {
         }
     }
 
+    private static string[]? _project_roots;
+
     /**
-     * Replace absolute path with $PROJECT prefix for log readability.
+     * Set the project root used to shorten absolute paths in logs.
+     * Paths under the root are prefixed with "$PROJECT" for readability.
      */
-    public static string project_path (string path) {
-        return path.replace (Environment.get_current_dir (), "$PROJECT");
+    public static void set_project_root (string root) {
+        _project_roots = { root };
     }
 
     /**
-     * Convert a file:// URI to $PROJECT/relative/path for log readability.
+     * Replace an absolute path under the project root with the $PROJECT prefix.
+     * Paths outside the project root are returned unchanged.
+     */
+    public static string project_path (string path) {
+        if (_project_roots == null)
+            return path;
+        foreach (var root in _project_roots) {
+            if (path == root)
+                return "$PROJECT";
+            if (path.has_prefix (root + "/"))
+                return "$PROJECT" + path.substring (root.length);
+        }
+        return path;
+    }
+
+    /**
+     * Shorten file:// URIs to $PROJECT/path for logs; falls back for external/non-file URIs.
      */
     public static string project_uri (string uri) {
-        return "$PROJECT/" + Uri.unescape_string (uri)
-            .replace (Environment.get_current_dir (), "");
+        var file = File.new_for_uri (uri);
+        var path = file.get_path ();
+        if (path == null)
+            return uri;
+        return project_path (path);
     }
 }

@@ -115,6 +115,13 @@ class Vls.Compilation : BuildTarget {
      */
     public HashMap<Vala.CodeNode, int> method_calls { get; private set; default = new HashMap<Vala.CodeNode, int> (); }
 
+    /**
+     * Collects every template-string literal (@"...") and its interpolation
+     * expressions, captured before code_context.check() rewrites Template nodes
+     * into to_string()/concat() chains. Keyed by the source file they belong to.
+     */
+    public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans { get; private set; default = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> (); }
+
     public Compilation (FileCache file_cache, string output_dir, string name, string id, int no,
                         string[] compiler, string[] args, string[] sources, string[] generated_sources,
                         string?[] target_output_files,
@@ -376,6 +383,11 @@ class Vls.Compilation : BuildTarget {
         foreach (var source_file in code_context.get_source_files ())
             source_file.accept (new InlayHintNodes (var_decls, method_calls));
 
+        // capture template-string literals before check() rewrites them
+        template_spans.clear ();
+        foreach (var source_file in code_context.get_source_files ())
+            source_file.accept (new TemplateNodes (template_spans));
+
         // continue compiling
         code_context.check ();
 
@@ -502,7 +514,7 @@ class Vls.Compilation : BuildTarget {
             } else if (typeof (T) == typeof (CodeLensAnalyzer)) {
                 analysis = new CodeLensAnalyzer (source);
             } else if (typeof (T) == typeof (SemanticTokensAnalyzer)) {
-                analysis = new SemanticTokensAnalyzer (source);
+                analysis = new SemanticTokensAnalyzer (source, template_spans.get (source));
             }
 
             if (analysis != null) {

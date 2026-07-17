@@ -40,6 +40,24 @@ namespace Lsp {
         Incremental = 2
     }
 
+    /**
+     * The level of verbosity with which the server reports its execution trace.
+     */
+    enum TraceValue {
+        OFF,
+        MESSAGES,
+        VERBOSE;
+
+        public static TraceValue parse (string? value) {
+            switch (value) {
+                case "off": return OFF;
+                case "messages": return MESSAGES;
+                case "verbose": return VERBOSE;
+                default: return VERBOSE;
+            }
+        }
+    }
+
     enum DiagnosticSeverity {
         Unset = 0,
         /**

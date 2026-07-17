@@ -67,7 +67,7 @@ class Vls.DefaultProject : Project {
                 // we may be opening a VAPI that is already a part of another
                 // compilation, so ensure this file is marked as open
                 opened[item.second] = item.first.filename;
-                debug ("returning %s for %s", item.first.filename, uri);
+                debug ("returning %s for %s", Util.project_path (item.first.filename), Util.project_uri (uri));
             }
             return results;
         }
@@ -93,7 +93,7 @@ class Vls.DefaultProject : Project {
         // make sure this comes after, that way btarget only gets added
         // if the build succeeds
         build_targets.add (btarget);
-        debug ("added %s", uri);
+        debug ("added %s", Util.project_uri (uri));
 
         results = lookup_compile_input_source_file (escaped_uri);
         // mark only the requested filename as opened in this compilation

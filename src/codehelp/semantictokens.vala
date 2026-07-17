@@ -99,7 +99,10 @@ namespace Vls.SemanticTokensHandler {
             foreach (var val in data)
                 data_builder.add ("u", val);
             edit_builder.add ("{sv}", "data", data_builder.end ());
-            edits_builder.add ("a{sv}", edit_builder.end ());
+            // add_value (not add ("a{sv}", ...)) — adding a pre-built child
+            // variant to a builder requires add_value, otherwise the builder
+            // is left in an inconsistent state and end() aborts the process.
+            edits_builder.add_value (edit_builder.end ());
 
             var result_dict = new VariantBuilder (new VariantType ("a{sv}"));
             result_dict.add ("{sv}", "resultId", new Variant.string (result_id));
@@ -147,7 +150,7 @@ namespace Vls.SemanticTokensHandler {
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -164,7 +167,7 @@ namespace Vls.SemanticTokensHandler {
                 Variant id, Variant @params) {
         var p = Util.parse_variant<SemanticTokensDeltaParams> (@params);
         debug ("[SEMTOK] delta request: uri=%s, prev_id=%s",
-               p.textDocument.uri, p.previousResultId ?? "null");
+               Util.project_uri (p.textDocument.uri), p.previousResultId ?? "null");
 
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
@@ -176,7 +179,7 @@ namespace Vls.SemanticTokensHandler {
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -205,7 +208,7 @@ namespace Vls.SemanticTokensHandler {
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, p.textDocument.uri);
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
