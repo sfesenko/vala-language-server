@@ -7,9 +7,7 @@ using Gee;
  * * abstract and virtual methods and properties that are overridden
  * * methods and properties that hide a base symbol
  */
-class Vls.CodeLensAnalyzer : Vala.CodeVisitor, CodeAnalyzer {
-    public DateTime last_updated { get; set; }
-
+class Vls.CodeLensAnalyzer : AbstractAnalyzer {
     /**
      * Collection of methods/properties that override a base symbol.
      *
@@ -30,8 +28,6 @@ class Vls.CodeLensAnalyzer : Vala.CodeVisitor, CodeAnalyzer {
      * Maps a symbol to the symbol it hides.
      */
     public HashMap<Vala.Symbol, Vala.Symbol> found_hides { get; private set; }
-
-    private Vala.SourceFile file;
 
     public CodeLensAnalyzer (Vala.SourceFile file) {
         this.file = file;

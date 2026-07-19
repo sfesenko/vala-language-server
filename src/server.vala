@@ -545,6 +545,104 @@ class Vls.Server : Jsonrpc.Server {
         }
     }
 
+    /**
+     * Reply with a JSON array of GObjects serialized to a JSON-RPC result.
+     */
+    public static void reply_array (Jsonrpc.Client client, Variant id, Gee.Collection<Object> items, string method = "") {
+        var array = new Json.Array ();
+        foreach (var item in items)
+            array.add_element (Json.gobject_serialize (item));
+        try {
+            Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
+            client.reply (id, result, cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    /**
+     * Reply with a JSON-RPC error.
+     */
+    public static void reply_error (Jsonrpc.Client client, Variant id, int code, string message, string method = "") {
+        client.reply_error_async.begin (id, code, message, cancellable);
+        debug (@"[$method] error reply ($code): $message");
+    }
+
+    /**
+     * Callback run inside {@link with_code_context}.
+     */
+    public delegate void ContextCallback ();
+
+    /**
+     * Run [cb] with the given Vala code context pushed, balanced by a
+     * guaranteed pop. Kills the push/pop-balance regression class.
+     */
+    public static void with_code_context (Vala.CodeContext ctx, owned ContextCallback cb) {
+        Vala.CodeContext.push (ctx);
+        try {
+            cb ();
+        } finally {
+            Vala.CodeContext.pop ();
+        }
+    }
+
+    /**
+     * Context passed to a {@link RequestHandler}. Carries everything a handler
+     * needs so feature functions stop taking 9 positional arguments.
+     */
+    public class RequestContext {
+        public Server server;
+        public Jsonrpc.Client client;
+        public Variant id;
+        public string method;
+        public Vala.SourceFile file;
+        public Compilation compilation;
+        public Project project;
+        public Lsp.Position? pos;
+
+        public RequestContext (Server server, Jsonrpc.Client client, Variant id, string method,
+                                Vala.SourceFile file, Compilation compilation, Project project,
+                                Lsp.Position? pos = null) {
+            this.server = server;
+            this.client = client;
+            this.id = id;
+            this.method = method;
+            this.file = file;
+            this.compilation = compilation;
+            this.project = project;
+            this.pos = pos;
+        }
+    }
+
+    /**
+     * Base class for request handlers (Stage 1 of the handler framework).
+     *
+     * Not forced on existing handlers — they keep calling the Server reply
+     * helpers directly. Subclasses override {@link run}; the default {@link run}
+     * replies null. The constructor captures a {@link RequestContext}; the
+     * {@link with_code_context} and reply_* helpers are available as protected
+     * helpers (more are added as handlers are migrated).
+     */
+    public abstract class RequestHandler {
+        protected RequestContext ctx;
+
+        protected RequestHandler (RequestContext ctx) {
+            this.ctx = ctx;
+        }
+
+        public virtual void run () {
+            reply_null ();
+        }
+
+        protected void reply_null () {
+            Server.reply_null (ctx.id, ctx.client, ctx.method);
+        }
+
+        protected void reply_array (Gee.Collection<Object> items) {
+            Server.reply_array (ctx.client, ctx.id, items, ctx.method);
+        }
+    }
+
     void text_document_did_open (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
@@ -1187,11 +1285,7 @@ class Vls.Server : Jsonrpc.Server {
         try {
             edited = Formatter.format (p.options, code_style, source_file, p.range, cancellable);
         } catch (Error e) {
-            client.reply_error_async.begin (
-                id,
-                Jsonrpc.ClientError.INTERNAL_ERROR,
-                e.message,
-            cancellable);
+            Server.reply_error (client, id, Jsonrpc.ClientError.INTERNAL_ERROR, e.message, method);
             warning ("Formatting failed: %s", e.message);
             return;
         }

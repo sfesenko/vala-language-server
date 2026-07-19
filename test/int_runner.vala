@@ -42,5 +42,9 @@ int main (string[] args) {
     Test.add_func ("/int/formatting", test_formatting);
     Test.add_func ("/int/implementation", test_implementation);
     Test.add_func ("/int/log_uses_project_path", test_log_uses_project_path);
+    Test.add_func ("/int/golden/document_symbol", test_golden_document_symbol);
+    Test.add_func ("/int/regression/adversarial_smoke_template_string", test_adversarial_smoke_template_string);
+    Test.add_func ("/int/regression/adversarial_smoke_single_dollar", test_adversarial_smoke_single_dollar);
+    Test.add_func ("/int/regression/adversarial_smoke_inverted_ref", test_adversarial_smoke_inverted_ref);
     return Test.run ();
 }

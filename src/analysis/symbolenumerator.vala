@@ -21,8 +21,7 @@ using Lsp;
 /**
  * Used to list all symbols defined in a document, usually for outlining.
  */
-class Vls.SymbolEnumerator : Vala.CodeVisitor, CodeAnalyzer {
-    private Vala.SourceFile file;
+class Vls.SymbolEnumerator : AbstractAnalyzer {
     private Gee.Deque<DocumentSymbol> containers;
     private Gee.List<DocumentSymbol> top_level_syms;
     private Gee.TreeMap<Range, DocumentSymbol> syms_flat;
@@ -31,8 +30,6 @@ class Vls.SymbolEnumerator : Vala.CodeVisitor, CodeAnalyzer {
     private Gee.HashMap<string, DocumentSymbol> ns_name_to_dsym;
     Vala.TypeSymbol? str_sym;
     string uri;
-
-    public DateTime last_updated { get; set; }
 
     public SymbolEnumerator (Vala.SourceFile file) {
         this.file = file;

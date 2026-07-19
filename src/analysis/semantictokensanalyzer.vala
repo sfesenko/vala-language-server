@@ -30,8 +30,7 @@ namespace Vls {
      * Analyzer that walks the full AST of a file and produces semantic tokens
      * for syntax highlighting.
      */
-    class SemanticTokensAnalyzer : Vala.CodeVisitor, CodeAnalyzer {
-        private Vala.SourceFile file;
+    class SemanticTokensAnalyzer : AbstractAnalyzer {
         private ArrayList<SemanticToken> tokens = new ArrayList<SemanticToken> ();
         private Vala.TypeSymbol? current_type_symbol = null;
         private HashSet<Vala.CodeNode> visited_nodes = new HashSet<Vala.CodeNode> ();
@@ -47,8 +46,6 @@ namespace Vls {
         // to_string()/concat() member tokens of the replacement chain.
         private Gee.List<TemplateSpan>? captured_templates;
         private HashSet<Vala.SourceReference> captured_srs = new HashSet<Vala.SourceReference> ();
-
-        public DateTime last_updated { get; set; }
 
         public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
             this.file = file;
@@ -112,23 +109,14 @@ namespace Vls {
             var sr = node.source_reference;
             if (sr == null || sr.file != file)
                 return;
-            var content = sr.file.content;
-            if (sr.file is TextDocument) {
-                var fresh = ((TextDocument) sr.file).last_fresh_content;
-                if (content != fresh)
-                    debug ("[SEMTOK] add_name_token: content differs from last_fresh_content (" +
-                           "sr: line=%d,col=%d, name=%s, content_len=%d, fresh_len=%d)",
-                           sr.begin.line, sr.begin.column, name,
-                           content != null ? content.length : 0,
-                           fresh != null ? fresh.length : 0);
-            }
-            long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-            long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
-            // Vala's template rewrite can emit synthetic nodes with an inverted
-            // source reference (end before begin); guard against negative slices.
-            if (to < from)
+            var content = Vls.Foundation.buffer_for (sr.file);
+            if (content == null)
                 return;
-            string text = content[from:to];
+            // Slice against the consistent (last-compiled) buffer; null on inverted
+            // or empty references (Vala's template rewrite can emit these).
+            string text = Vls.Foundation.slice_sourceref (sr);
+            if (text == null)
+                return;
             int name_start = Util.find_name_in_text (text, name);
             if (name_start < 0) {
                 if (name[0] != '.' && name[0] != '_')
@@ -155,12 +143,9 @@ namespace Vls {
             if (sr == null || sr.file != file)
                 return;
             if (type.value_owned) {
-                var content = sr.file.content;
-                long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-                long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
-                if (to < from)
+                string text = Vls.Foundation.slice_sourceref (sr);
+                if (text == null)
                     return;
-                string text = content[from:to];
                 if (text.has_prefix ("owned")) {
                     try_emit_token ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1), 5, SemanticTokenType.KEYWORD, 0);
                     int type_offset = 5;
@@ -211,22 +196,14 @@ namespace Vls {
             return modifiers;
         }
 
-        private bool is_in_file (Vala.CodeNode? node) {
-            if (node == null)
-                return false;
-            var sr = node.source_reference;
-            return sr != null && sr.file == file;
-        }
-
         private void emit_leading_keyword_tokens (Vala.SourceReference sr) {
             if (sr == null || sr.file != file)
                 return;
-            var content = sr.file.content;
-            long from = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-            long to = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) (sr.end.column));
-            if (to < from)
+            // Slice against the consistent (last-compiled) buffer; null on
+            // inverted or empty references.
+            string text = Vls.Foundation.slice_sourceref (sr);
+            if (text == null)
                 return;
-            string text = content[from:to];
             uint base_line = (uint) (sr.begin.line - 1);
             uint base_col = (uint) (sr.begin.column - 1);
             uint pos = 0;

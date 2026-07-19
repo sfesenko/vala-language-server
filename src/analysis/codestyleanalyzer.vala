@@ -21,12 +21,9 @@ using Vala;
 /**
  * Collects statistics on code style in a document.
  */
-class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
-    private SourceFile? current_file;
+class Vls.CodeStyleAnalyzer : AbstractAnalyzer {
     private uint _total_spacing;
     private uint _num_callable;
-
-    public override DateTime last_updated { get; set; }
 
     /**
      * Average spacing before parentheses in method and delegate declarations.
@@ -40,6 +37,7 @@ class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
     }
 
     public CodeStyleAnalyzer (SourceFile source_file) {
+        this.file = source_file;
         this.visit_source_file (source_file);
     }
 
@@ -97,37 +95,35 @@ class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
     }
 
     public override void visit_source_file (SourceFile source_file) {
-        current_file = source_file;
         source_file.accept_children (this);
-        current_file = null;
     }
 
     public override void visit_namespace (Namespace ns) {
-        if (ns.source_reference != null && ns.source_reference.file != current_file)
+        if (ns.source_reference != null && ns.source_reference.file != file)
             return;
         ns.accept_children (this);
     }
 
     public override void visit_class (Class cl) {
-        if (cl.source_reference == null || cl.source_reference.file != current_file)
+        if (cl.source_reference == null || cl.source_reference.file != file)
             return;
         cl.accept_children (this);
     }
 
     public override void visit_interface (Interface iface) {
-        if (iface.source_reference == null || iface.source_reference.file != current_file)
+        if (iface.source_reference == null || iface.source_reference.file != file)
             return;
         iface.accept_children (this);
     }
 
     public override void visit_enum (Enum en) {
-        if (en.source_reference == null || en.source_reference.file != current_file)
+        if (en.source_reference == null || en.source_reference.file != file)
             return;
         en.accept_children (this);
     }
 
     public override void visit_struct (Struct st) {
-        if (st.source_reference == null || st.source_reference.file != current_file)
+        if (st.source_reference == null || st.source_reference.file != file)
             return;
         st.accept_children (this);
     }
@@ -138,8 +134,8 @@ class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
         // because we allow content to be temporarily inconsistent with the
         // parse tree (to allow for fast code completion), we have to use
         // [last_fresh_content]
-        unowned var content = (current_file is TextDocument) ?
-            ((TextDocument)current_file).last_fresh_content : current_file.content;
+        unowned var content = (file is TextDocument) ?
+            ((TextDocument)file).last_fresh_content : file.content;
         var sr = callable.source_reference;
         var zero_idx = (long) Util.get_string_pos (content, sr.end.line - 1, sr.end.column);
         unowned string text = content.offset (zero_idx);
@@ -153,14 +149,14 @@ class Vls.CodeStyleAnalyzer : CodeVisitor, CodeAnalyzer {
     }
 
     public override void visit_delegate (Delegate d) {
-        if (d.source_reference == null || d.source_reference.file != current_file ||
+        if (d.source_reference == null || d.source_reference.file != file ||
             d.source_reference.begin.pos == null)
             return;
         analyze_callable (d);
     }
 
     public override void visit_method (Method m) {
-        if (m.source_reference == null || m.source_reference.file != current_file || m.source_reference.begin.pos == null)
+        if (m.source_reference == null || m.source_reference.file != file || m.source_reference.begin.pos == null)
             return;
         analyze_callable (m);
     }

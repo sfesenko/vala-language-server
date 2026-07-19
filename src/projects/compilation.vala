@@ -52,7 +52,7 @@ class Vls.Compilation : BuildTarget {
     /**
      * The analyses for each project source.
      */
-    private HashMap<Vala.SourceFile, HashMap<Type, CodeAnalyzer>> _source_analyzers = new HashMap<Vala.SourceFile, HashMap<Type, CodeAnalyzer>> ();
+    private HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> _source_analyzers = new HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> ();
 
     public Vala.CodeContext code_context { get; private set; default = new Vala.CodeContext (); }
 
@@ -491,12 +491,12 @@ class Vls.Compilation : BuildTarget {
     public T? get_analysis_for_file<T> (Vala.SourceFile source) {
         var analyses = _source_analyzers[source];
         if (analyses == null) {
-            analyses = new HashMap<Type, CodeAnalyzer> ();
+            analyses = new HashMap<Type, AbstractAnalyzer> ();
             _source_analyzers[source] = analyses;
         }
 
         // generate the analysis on demand if it doesn't exist or it is stale
-        CodeAnalyzer? analysis = null;
+        AbstractAnalyzer? analysis = null;
         bool has_cached = analyses.has_key (typeof (T));
         if (!has_cached || analyses[typeof (T)].last_updated.compare (last_updated) < 0) {
             if (has_cached)

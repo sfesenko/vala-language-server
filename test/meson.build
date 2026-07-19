@@ -26,6 +26,8 @@ integration_src = files([
   'int_hierarchy.vala',
   'int_misc.vala',
   'int_log.vala',
+  'int_golden.vala',
+  'int_regression.vala',
 ])
 
 int_exe = executable('vls-int-test',
@@ -78,11 +80,43 @@ integration_tests = [
   '/int/formatting',
   '/int/implementation',
   '/int/log_uses_project_path',
+  '/int/golden/document_symbol',
+  '/int/regression/adversarial_smoke_template_string',
+  '/int/regression/adversarial_smoke_single_dollar',
+  '/int/regression/adversarial_smoke_inverted_ref',
 ]
 
 foreach t : integration_tests
   test('int' + t, int_exe,
-       args: ['-p', t],
-       suite: 'int',
-       env: ['VLS_SERVER_PATH=' + vls.full_path()])
+        args: ['-p', t],
+        suite: 'int',
+        env: ['VLS_SERVER_PATH=' + vls.full_path()])
+endforeach
+
+# Foundation unit tests: these exercise Vls.Foundation's helpers directly
+# without spawning a subprocess. The foundation module is intentionally free
+# of the LSP protocol layer, so it only needs a minimal source set
+# (util + TextDocument) rather than the full server.
+foundation_test_src = files([
+  'int_foundation.vala',
+])
+
+foundation_exe = executable('vls-foundation-test',
+  dependencies: deps,
+  sources: [extra_vala_sources, foundation_vala_sources, foundation_test_src],
+  install: false)
+
+foundation_tests = [
+  '/int_foundation/buffer_for',
+  '/int_foundation/slice_sourceref',
+  '/int_foundation/normalize_sourceref',
+  '/int_foundation/position_from_sourceref',
+  '/int_foundation/range_from_sourceref',
+  '/int_foundation/offset_to_position',
+]
+
+foreach t : foundation_tests
+  test('foundation' + t, foundation_exe,
+        args: ['-p', t],
+        suite: 'foundation')
 endforeach

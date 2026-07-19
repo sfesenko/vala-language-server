@@ -66,7 +66,15 @@ version_file = vcs_tag(input: 'version.vala.in',
 add_project_arguments(['--enable-gobject-tracing', '--fatal-warnings'], language: 'vala')
 
 extra_vala_sources += files([
-  'src/util.vala'
+  'src/util.vala',
+])
+
+# Minimal Vala sources for the Foundation unit tests (compiled in-process, no
+# server subprocess). Root-relative paths so meson flattens the generated C
+# correctly (nested paths from test/ break Vala source generation).
+foundation_vala_sources = files([
+  'src/foundation/positions.vala',
+  'src/projects/textdocument.vala',
 ])
 
 if host_machine.system() == 'windows'

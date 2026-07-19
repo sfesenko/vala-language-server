@@ -54,6 +54,59 @@ class Helpers {
             client.send_notification (method, @params);
         } catch (Error e) {}
     }
+
+    /**
+     * Assert that [actual] (an LSP reply Variant) equals the JSON stored at
+     * [expected_path]. Both are serialized to canonical JSON text and compared.
+     *
+     * If the environment variable VLS_GOLDEN_RECORD is set to "1", the actual
+     * reply is written to [expected_path] instead (creating parent directories),
+     * which makes authoring golden fixtures a one-shot operation.
+     */
+    // Stabilize non-deterministic parts of a serialized reply: the session
+    // temp directory carries a random id (vls-sess-<digits>), so two runs
+    // never compare equal. Replace it with a fixed token.
+    private static string normalize_golden (string s) {
+        try {
+            var re = new Regex ("vls-sess-[0-9]+");
+            return re.replace (s, -1, 0, "vls-sess-0");
+        } catch (Error e) {
+            return s;
+        }
+    }
+
+    public static void assert_json_equals (Variant actual, string expected_path) {
+        var actual_node = Json.gvariant_serialize (actual);
+        var actual_text = normalize_golden (Json.to_string (actual_node, false));
+
+        if (Environment.get_variable ("VLS_GOLDEN_RECORD") == "1") {
+            var dir = GLib.Path.get_dirname (expected_path);
+            try {
+                File.new_for_path (dir).make_directory_with_parents ();
+            } catch (Error e) {}
+            try {
+                FileUtils.set_contents (expected_path, actual_text);
+            } catch (Error e) {
+                assert_not_reached ();
+            }
+            return;
+        }
+
+        string expected_text;
+        try {
+            FileUtils.get_contents (expected_path, out expected_text);
+        } catch (Error e) {
+            assert_not_reached ();
+        }
+        Json.Node expected_node;
+        try {
+            expected_node = Json.from_string (expected_text);
+        } catch (Error e) {
+            assert_not_reached ();
+        }
+        var expected_norm = normalize_golden (Json.to_string (expected_node, false));
+        assert (actual_text == expected_norm);
+    }
 }
 
 class TestSession {

@@ -69,23 +69,16 @@ namespace Vls.CodeHelp {
         var sr = node.source_reference;
         if (sr == null)
             return @"(error - $(node.type_name) does not have source ref!)";
-        var file = sr.file;
-        unowned string content;
-        if (file.content == null)
-            file.content = (string) file.get_mapped_contents ();
-        if (sr.file is TextDocument) {
-            content = ((TextDocument)sr.file).last_fresh_content;
-        } else {
-            content = file.content;
-        }
-        var from = (long) Util.get_string_pos (content, sr.begin.line-1, sr.begin.column-1);
-        var to = (long) Util.get_string_pos (content, sr.end.line-1, sr.end.column);
-        if (from > to) {
+        // Slice against a single, consistent buffer (last-compiled contents for
+        // a TextDocument, mapped contents otherwise) so offsets and the slice
+        // never come from two different buffers.
+        var slice = Vls.Foundation.slice_sourceref (sr);
+        if (slice == null) {
             warning ("expression %s has bad source reference %s",
-                     node.to_string (), node.source_reference.to_string ());
+                     node.to_string (), sr.to_string ());
             return node.to_string ();
         }
-        return file.content[from:to];
+        return slice;
     }
 
     /**
