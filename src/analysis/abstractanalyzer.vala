@@ -52,7 +52,26 @@ namespace Vls {
             if (node == null)
                 return false;
             var sr = node.source_reference;
+            // Identity comparison is sound: SourceFile instances are identity
+            // objects within a single compilation, so two references pointing
+            // at the same file compare equal by reference.
             return sr != null && sr.file == file;
+        }
+
+        /**
+         * Recurse into @a node only when it belongs to this analyzer's file.
+         *
+         * This is the common body of the many `visit_*` overrides that merely
+         * traverse the AST without producing output. Subclasses with such a
+         * passthrough override can write:
+         *
+         * ```vala
+         * public override void visit_block (Vala.Block b) { descend (b); }
+         * ```
+         */
+        protected void descend (CodeNode? node) {
+            if (is_in_file (node))
+                node.accept_children (this);
         }
     }
 }

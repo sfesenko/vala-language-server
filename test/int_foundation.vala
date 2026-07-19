@@ -143,6 +143,58 @@ void test_offset_to_position () {
     assert (pn.line == 0 && pn.character == 0);
 }
 
+void test_line_index () {
+    // null content -> single line starting at 0
+    var empty = new Vls.Foundation.LineIndex (null);
+    assert (empty.line_count == 1);
+    assert (empty.byte_offset (0) == 0);
+    assert (empty.byte_offset (99) == 0); // past end clamps to length
+
+    // empty string -> single line
+    var blank = new Vls.Foundation.LineIndex ("");
+    assert (blank.line_count == 1);
+    assert (blank.byte_offset (0) == 0);
+
+    // single line, no newline
+    var one = new Vls.Foundation.LineIndex ("hello");
+    assert (one.line_count == 1);
+    assert (one.byte_offset (0) == 0);
+
+    // many lines
+    var buf = "line0\nline1\nline2\nline3";
+    var idx = new Vls.Foundation.LineIndex (buf);
+    assert (idx.line_count == 4);
+    assert (idx.byte_offset (0) == 0);
+    assert (idx.byte_offset (1) == 6);  // "line0\n"
+    assert (idx.byte_offset (2) == 12); // + "line1\n"
+    assert (idx.byte_offset (3) == 18); // + "line2\n"
+    assert (idx.byte_offset (4) == buf.length); // past end clamps to length
+
+    // byte_offset_for_char counts UTF-8 code points
+    var uni = "héllo\nwörld";
+    var uidx = new Vls.Foundation.LineIndex (uni);
+    // "wörld" starts at offset 6; the 'ö' is 2 bytes; char 3 is past 'ö'
+    assert (uidx.byte_offset_for_char (1, 0) == 6);
+    assert (uidx.byte_offset_for_char (1, 1) == 7);   // 'w'
+    assert (uidx.byte_offset_for_char (1, 2) == 8);   // 'ö' (first byte)
+    assert (uidx.byte_offset_for_char (1, 3) == 10);  // after 'ö' (2-byte)
+
+    // offset_to_position_with uses binary search over line starts
+    var p = Vls.Foundation.offset_to_position_with (idx, 0);
+    assert (p.line == 0 && p.character == 0);
+    p = Vls.Foundation.offset_to_position_with (idx, 7);  // '1' on line 1
+    assert (p.line == 1 && p.character == 1);
+    p = Vls.Foundation.offset_to_position_with (idx, 20); // '3' on line 3
+    assert (p.line == 3 && p.character == 2);
+    p = Vls.Foundation.offset_to_position_with (idx, 9999); // clamps to end
+    assert (p.line == 3 && p.character == 5);
+
+    // CRLF counted by '\n' only
+    var crlf = new Vls.Foundation.LineIndex ("a\r\nb");
+    assert (crlf.line_count == 2);
+    assert (crlf.byte_offset (1) == 3); // "a\r\n"
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/int_foundation/buffer_for", test_buffer_for);
@@ -151,5 +203,6 @@ int main (string[] args) {
     Test.add_func ("/int_foundation/position_from_sourceref", test_position_from_sourceref);
     Test.add_func ("/int_foundation/range_from_sourceref", test_range_from_sourceref);
     Test.add_func ("/int_foundation/offset_to_position", test_offset_to_position);
+    Test.add_func ("/int_foundation/line_index", test_line_index);
     return Test.run ();
 }

@@ -162,76 +162,40 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
         file.accept_children (this);
     }
 
-    public override void visit_addressof_expression (Vala.AddressofExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_addressof_expression (Vala.AddressofExpression expr) { descend (expr); }
 
-    public override void visit_array_creation_expression (Vala.ArrayCreationExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_array_creation_expression (Vala.ArrayCreationExpression expr) { descend (expr); }
 
-    public override void visit_assignment (Vala.Assignment a) {
-        if (a.source_reference != null && a.source_reference.file != file) return;
-        a.accept_children (this);
-    }
+        public override void visit_assignment (Vala.Assignment a) { descend (a); }
 
-    public override void visit_base_access (Vala.BaseAccess expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_base_access (Vala.BaseAccess expr) { descend (expr); }
 
-    public override void visit_binary_expression (Vala.BinaryExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_binary_expression (Vala.BinaryExpression expr) { descend (expr); }
 
-    public override void visit_block (Vala.Block b) {
-        if (b.source_reference != null && b.source_reference.file != file) return;
-        b.accept_children (this);
-    }
+        public override void visit_block (Vala.Block b) { descend (b); }
 
-    public override void visit_boolean_literal (Vala.BooleanLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_boolean_literal (Vala.BooleanLiteral lit) { descend (lit); }
 
-    public override void visit_break_statement (Vala.BreakStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_break_statement (Vala.BreakStatement stmt) { descend (stmt); }
 
-    public override void visit_cast_expression (Vala.CastExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_cast_expression (Vala.CastExpression expr) { descend (expr); }
 
-    public override void visit_catch_clause (Vala.CatchClause clause) {
-        if (clause.source_reference != null && clause.source_reference.file != file) return;
-        clause.accept_children (this);
-    }
+        public override void visit_catch_clause (Vala.CatchClause clause) { descend (clause); }
 
-    public override void visit_character_literal (Vala.CharacterLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_character_literal (Vala.CharacterLiteral lit) { descend (lit); }
 
     public override void visit_class (Vala.Class cl) {
-        if (cl.source_reference != null && cl.source_reference.file != file) return;
+        if (!is_in_file (cl)) return;
         var dsym = add_symbol (cl, Class);
         containers.offer_head (dsym);
         cl.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_conditional_expression (Vala.ConditionalExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_conditional_expression (Vala.ConditionalExpression expr) { descend (expr); }
 
     public override void visit_constant (Vala.Constant c) {
-        if (c.source_reference != null && c.source_reference.file != file) return;
+        if (!is_in_file (c)) return;
         if (!containers.is_empty) {
             var kind = containers.peek_head ().kind;
             if (kind == Method || kind == Function || kind == Constructor) return;
@@ -252,42 +216,33 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
     }
 
     public override void visit_constructor (Vala.Constructor c) {
-        if (c.source_reference != null && c.source_reference.file != file) return;
+        if (!is_in_file (c)) return;
         var dsym = add_symbol (c, Constructor);
         containers.offer_head (dsym);
         c.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_continue_statement (Vala.ContinueStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_continue_statement (Vala.ContinueStatement stmt) { descend (stmt); }
 
     public override void visit_creation_method (Vala.CreationMethod m) {
-        if (m.source_reference != null && m.source_reference.file != file) return;
+        if (!is_in_file (m)) return;
         add_symbol (m, Constructor);
         m.accept_children (this);
     }
 
-    public override void visit_declaration_statement (Vala.DeclarationStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_declaration_statement (Vala.DeclarationStatement stmt) { descend (stmt); }
 
     public override void visit_delegate (Vala.Delegate cb) {
-        if (cb.source_reference != null && cb.source_reference.file != file) return;
+        if (!is_in_file (cb)) return;
         add_symbol (cb, Interface);
         cb.accept_children (this);
     }
 
-    public override void visit_delete_statement (Vala.DeleteStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_delete_statement (Vala.DeleteStatement stmt) { descend (stmt); }
 
     public override void visit_destructor (Vala.Destructor dtor) {
-        if (dtor.source_reference != null && dtor.source_reference.file != file) return;
+        if (!is_in_file (dtor)) return;
         var dsym = add_symbol (dtor, Method);
         if (!containers.is_empty) {
             var csym = containers.peek_head ();
@@ -296,23 +251,14 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
         dtor.accept_children (this);
     }
 
-    public override void visit_do_statement (Vala.DoStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_do_statement (Vala.DoStatement stmt) { descend (stmt); }
 
-    public override void visit_element_access (Vala.ElementAccess expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_element_access (Vala.ElementAccess expr) { descend (expr); }
 
-    public override void visit_empty_statement (Vala.EmptyStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_empty_statement (Vala.EmptyStatement stmt) { descend (stmt); }
 
     public override void visit_enum (Vala.Enum en) {
-        if (en.source_reference != null && en.source_reference.file != file) return;
+        if (!is_in_file (en)) return;
         var dsym = add_symbol (en, Enum);
         containers.offer_head (dsym);
         en.accept_children (this);
@@ -320,100 +266,70 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
     }
 
     public override void visit_enum_value (Vala.EnumValue ev) {
-        if (ev.source_reference != null && ev.source_reference.file != file) return;
+        if (!is_in_file (ev)) return;
         add_symbol (ev, EnumMember);
         ev.accept_children (this);
     }
 
     public override void visit_error_code (Vala.ErrorCode ecode) {
-        if (ecode.source_reference != null && ecode.source_reference.file != file) return;
+        if (!is_in_file (ecode)) return;
         add_symbol (ecode, EnumMember);
         ecode.accept_children (this);
     }
 
     public override void visit_error_domain (Vala.ErrorDomain edomain) {
-        if (edomain.source_reference != null && edomain.source_reference.file != file) return;
+        if (!is_in_file (edomain)) return;
         var dsym = add_symbol (edomain, Enum);
         containers.offer_head (dsym);
         edomain.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_expression_statement (Vala.ExpressionStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_expression_statement (Vala.ExpressionStatement stmt) { descend (stmt); }
 
     public override void visit_field (Vala.Field f) {
-        if (f.source_reference != null && f.source_reference.file != file) return;
+        if (!is_in_file (f)) return;
         add_symbol (f, Field);
         f.accept_children (this);
     }
 
-    public override void visit_for_statement (Vala.ForStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_for_statement (Vala.ForStatement stmt) { descend (stmt); }
 
-    public override void visit_foreach_statement (Vala.ForeachStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_foreach_statement (Vala.ForeachStatement stmt) { descend (stmt); }
 
-    public override void visit_if_statement (Vala.IfStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_if_statement (Vala.IfStatement stmt) { descend (stmt); }
 
-    public override void visit_initializer_list (Vala.InitializerList list) {
-        if (list.source_reference != null && list.source_reference.file != file) return;
-        list.accept_children (this);
-    }
+        public override void visit_initializer_list (Vala.InitializerList list) { descend (list); }
 
-    public override void visit_integer_literal (Vala.IntegerLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_integer_literal (Vala.IntegerLiteral lit) { descend (lit); }
 
     public override void visit_interface (Vala.Interface iface) {
-        if (iface.source_reference != null && iface.source_reference.file != file) return;
+        if (!is_in_file (iface)) return;
         var dsym = add_symbol (iface, Interface);
         containers.offer_head (dsym);
         iface.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_lambda_expression (Vala.LambdaExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_lambda_expression (Vala.LambdaExpression expr) { descend (expr); }
 
-    public override void visit_local_variable (Vala.LocalVariable local) {
-        if (local.source_reference != null && local.source_reference.file != file) return;
-        local.accept_children (this);
-    }
+        public override void visit_local_variable (Vala.LocalVariable local) { descend (local); }
 
-    public override void visit_lock_statement (Vala.LockStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_lock_statement (Vala.LockStatement stmt) { descend (stmt); }
 
 #if VALA_0_52
     public override void visit_loop_statement (Vala.LoopStatement stmt) {
 #else
     public override void visit_loop (Vala.Loop stmt) {
 #endif
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
+        if (!is_in_file (stmt)) return;
         stmt.accept_children (this);
     }
 
-    public override void visit_member_access (Vala.MemberAccess expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_member_access (Vala.MemberAccess expr) { descend (expr); }
 
     public override void visit_method (Vala.Method m) {
-        if (m.source_reference != null && m.source_reference.file != file) return;
+        if (!is_in_file (m)) return;
         if (!containers.is_empty) {
             var kind = containers.peek_head ().kind;
             if (kind == Method || kind == Function || kind == Constructor) return;
@@ -426,118 +342,67 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
             containers.poll_head ();
     }
 
-    public override void visit_method_call (Vala.MethodCall expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_method_call (Vala.MethodCall expr) { descend (expr); }
 
     public override void visit_namespace (Vala.Namespace ns) {
-        if (ns.source_reference != null && ns.source_reference.file != file) return;
+        if (!is_in_file (ns)) return;
         var dsym = add_symbol (ns, Namespace);
         containers.offer_head (dsym);
         ns.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_null_literal (Vala.NullLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_null_literal (Vala.NullLiteral lit) { descend (lit); }
 
-    public override void visit_object_creation_expression (Vala.ObjectCreationExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_object_creation_expression (Vala.ObjectCreationExpression expr) { descend (expr); }
 
-    public override void visit_pointer_indirection (Vala.PointerIndirection expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_pointer_indirection (Vala.PointerIndirection expr) { descend (expr); }
 
-    public override void visit_postfix_expression (Vala.PostfixExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_postfix_expression (Vala.PostfixExpression expr) { descend (expr); }
 
     public override void visit_property (Vala.Property prop) {
-        if (prop.source_reference != null && prop.source_reference.file != file) return;
+        if (!is_in_file (prop)) return;
         var dsym = add_symbol (prop, Property);
         containers.offer_head (dsym);
         prop.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_real_literal (Vala.RealLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_real_literal (Vala.RealLiteral lit) { descend (lit); }
 
-    public override void visit_reference_transfer_expression (Vala.ReferenceTransferExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_reference_transfer_expression (Vala.ReferenceTransferExpression expr) { descend (expr); }
 
-    public override void visit_return_statement (Vala.ReturnStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_return_statement (Vala.ReturnStatement stmt) { descend (stmt); }
 
     public override void visit_signal (Vala.Signal sig) {
-        if (sig.source_reference != null && sig.source_reference.file != file) return;
+        if (!is_in_file (sig)) return;
         add_symbol (sig, Event);
         sig.accept_children (this);
     }
 
-    public override void visit_sizeof_expression (Vala.SizeofExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_sizeof_expression (Vala.SizeofExpression expr) { descend (expr); }
 
-    public override void visit_slice_expression (Vala.SliceExpression expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_slice_expression (Vala.SliceExpression expr) { descend (expr); }
 
-    public override void visit_string_literal (Vala.StringLiteral lit) {
-        if (lit.source_reference != null && lit.source_reference.file != file) return;
-        lit.accept_children (this);
-    }
+        public override void visit_string_literal (Vala.StringLiteral lit) { descend (lit); }
 
     public override void visit_struct (Vala.Struct st) {
-        if (st.source_reference != null && st.source_reference.file != file) return;
+        if (!is_in_file (st)) return;
         var dsym = add_symbol (st, Struct);
         containers.offer_head (dsym);
         st.accept_children (this);
         containers.poll_head ();
     }
 
-    public override void visit_switch_label (Vala.SwitchLabel label) {
-        if (label.source_reference != null && label.source_reference.file != file) return;
-        label.accept_children (this);
-    }
+        public override void visit_switch_label (Vala.SwitchLabel label) { descend (label); }
 
-    public override void visit_switch_section (Vala.SwitchSection section) {
-        if (section.source_reference != null && section.source_reference.file != file) return;
-        section.accept_children (this);
-    }
+        public override void visit_switch_section (Vala.SwitchSection section) { descend (section); }
 
-    public override void visit_switch_statement (Vala.SwitchStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_switch_statement (Vala.SwitchStatement stmt) { descend (stmt); }
 
-    public override void visit_throw_statement (Vala.ThrowStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_throw_statement (Vala.ThrowStatement stmt) { descend (stmt); }
 
-    public override void visit_try_statement (Vala.TryStatement stmt) {
-        if (stmt.source_reference != null && stmt.source_reference.file != file) return;
-        stmt.accept_children (this);
-    }
+        public override void visit_try_statement (Vala.TryStatement stmt) { descend (stmt); }
 
-    public override void visit_type_check (Vala.TypeCheck expr) {
-        if (expr.source_reference != null && expr.source_reference.file != file) return;
-        expr.accept_children (this);
-    }
+        public override void visit_type_check (Vala.TypeCheck expr) { descend (expr); }
 }

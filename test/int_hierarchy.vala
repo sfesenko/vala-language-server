@@ -28,12 +28,11 @@ void test_implementation () {
         textDocument: h.build_dict (uri: new Variant.string (s.uri)),
         position: h.build_dict (line: new Variant.int32 (1), character: new Variant.int32 (25))
     ));
-    if (res != null) {
-        if (res.is_of_type (VariantType.ARRAY)) {
-            assert (res.n_children () > 0);
-        } else {
-            assert (res.lookup_value ("uri", null) != null);
-        }
+    assert (res != null);
+    if (res.is_of_type (VariantType.ARRAY)) {
+        assert (res.n_children () > 0);
+    } else {
+        assert (res.lookup_value ("uri", null) != null);
     }
     teardown_session (s);
 }

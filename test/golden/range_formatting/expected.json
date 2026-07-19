@@ -1,0 +1,1 @@
+[{"range":{"start":{"line":0,"character":0},"end":{"line":4,"character":1}},"newText":"public class Foo {\n    public int bar () {\n        return 0;\n    }\n}"}]

@@ -130,6 +130,54 @@ namespace Vls.CallHierarchy {
         return outgoing;
     }
 
+    class PrepareCallHierarchyHandler : Server.RequestHandler {
+        private TextDocumentPositionParams p;
+
+        public PrepareCallHierarchyHandler (Server.RequestContext ctx, TextDocumentPositionParams p) {
+            base (ctx);
+            this.p = p;
+        }
+
+        public override void run () {
+            var resolved = Server.resolve_best_node (ctx.file, p.position);
+
+            if (resolved == null) {
+                debug ("[%s] no results found", ctx.method);
+                reply_null ();
+                return;
+            }
+
+            var node = (!) resolved;
+
+            Vala.Method method_sym;
+
+            if (node is Vala.Method) {
+                method_sym = (Vala.Method)node;
+            } else if (node is Vala.MethodCall) {
+                var call_method = ((Vala.MethodCall)node).call.symbol_reference as Vala.Method;
+                if (call_method == null) {
+                    reply_null ();
+                    return;
+                }
+                method_sym = call_method;
+            } else if (node is Vala.Expression && ((Vala.Expression)node).symbol_reference is Vala.Method) {
+                method_sym = (Vala.Method) ((Vala.Expression)node).symbol_reference;
+            } else {
+                reply_null ();
+                return;
+            }
+
+            try {
+                var array = new Variant.array (VariantType.VARDICT, {
+                    Util.object_to_variant (new CallHierarchyItem.from_symbol (method_sym))
+                });
+                reply_dict (array);
+            } catch (Error e) {
+                warning ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
+        }
+    }
+
     void prepare_call_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<TextDocumentPositionParams> (@params);
 
@@ -142,45 +190,44 @@ namespace Vls.CallHierarchy {
             return;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
-
-        var resolved = Server.resolve_best_node (doc, p.position, false);
-
-        if (resolved == null) {
-            debug (@"[$method] no results found");
-            Server.reply_null (id, client, method);
-            Vala.CodeContext.pop ();
-            return;
-        }
-
-        var node = (!) resolved;
-        Vala.CodeContext.pop ();
-
-        Vala.Method method_sym;
-
-        if (node is Vala.Method) {
-            method_sym = (Vala.Method)node;
-        } else if (node is Vala.MethodCall) {
-            var call_method = ((Vala.MethodCall)node).call.symbol_reference as Vala.Method;
-            if (call_method == null) {
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
                 Server.reply_null (id, client, method);
                 return;
             }
-            method_sym = call_method;
-        } else if (node is Vala.Expression && ((Vala.Expression)node).symbol_reference is Vala.Method) {
-            method_sym = (Vala.Method) ((Vala.Expression)node).symbol_reference;
-        } else {
-            Server.reply_null (id, client, method);
-            return;
+
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new PrepareCallHierarchyHandler (ctx, p);
+                handler.run ();
+            });
+        });
+    }
+
+    class CallHierarchyIncomingHandler : Server.RequestHandler {
+        private CallHierarchyItem item;
+
+        public CallHierarchyIncomingHandler (Server.RequestContext ctx, CallHierarchyItem item) {
+            base (ctx);
+            this.item = item;
         }
 
-        try {
-            var array = new Variant.array (null, {
-                Util.object_to_variant (new CallHierarchyItem.from_symbol (method_sym))
-            });
-            client.reply (id, array, Server.cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+        public override void run () {
+            var symbol = CodeHelp.lookup_symbol_full_name (item.name, ctx.compilation.code_context.root.scope);
+            if (!(symbol is Vala.Callable || symbol is Vala.Subroutine)) {
+                reply_null ();
+                return;
+            }
+
+            try {
+                Variant[] incoming_va = {};
+                foreach (var incoming_call in get_incoming_calls (ctx.project, symbol))
+                    incoming_va += Util.object_to_variant (incoming_call);
+                reply_dict (new Variant.array (VariantType.VARDICT, incoming_va));
+            } catch (Error e) {
+                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
         }
     }
 
@@ -197,24 +244,44 @@ namespace Vls.CallHierarchy {
             return;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
+            }
 
-        var symbol = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope);
-        if (!(symbol is Vala.Callable || symbol is Vala.Subroutine)) {
-            Vala.CodeContext.pop ();
-            Server.reply_null (id, client, method);
-            return;
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new CallHierarchyIncomingHandler (ctx, item);
+                handler.run ();
+            });
+        });
+    }
+
+    class CallHierarchyOutgoingHandler : Server.RequestHandler {
+        private CallHierarchyItem item;
+
+        public CallHierarchyOutgoingHandler (Server.RequestContext ctx, CallHierarchyItem item) {
+            base (ctx);
+            this.item = item;
         }
 
-        // get all methods that call this method
-        try {
-            Variant[] incoming_va = {};
-            foreach (var incoming_call in get_incoming_calls (project, symbol))
-                incoming_va += Util.object_to_variant (incoming_call);
-            Vala.CodeContext.pop ();
-            client.reply (id, new Variant.array (VariantType.VARDICT, incoming_va), Server.cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+        public override void run () {
+            var subroutine = CodeHelp.lookup_symbol_full_name (item.name, ctx.compilation.code_context.root.scope) as Vala.Subroutine;
+            if (subroutine == null) {
+                reply_null ();
+                return;
+            }
+
+            try {
+                Variant[] outgoing_va = {};
+                foreach (var outgoing_call in get_outgoing_calls (ctx.project, subroutine))
+                    outgoing_va += Util.object_to_variant (outgoing_call);
+                reply_dict (new Variant.array (VariantType.VARDICT, outgoing_va));
+            } catch (Error e) {
+                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
         }
     }
 
@@ -231,24 +298,18 @@ namespace Vls.CallHierarchy {
             return;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
+            }
 
-        var subroutine = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope) as Vala.Subroutine;
-        if (subroutine == null) {
-            Vala.CodeContext.pop ();
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        // get all methods called by this method
-        try {
-            Variant[] outgoing_va = {};
-            foreach (var outgoing_call in get_outgoing_calls (project, subroutine))
-                outgoing_va += Util.object_to_variant (outgoing_call);
-            Vala.CodeContext.pop ();
-            client.reply (id, new Variant.array (VariantType.VARDICT, outgoing_va), Server.cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new CallHierarchyOutgoingHandler (ctx, item);
+                handler.run ();
+            });
+        });
     }
 }

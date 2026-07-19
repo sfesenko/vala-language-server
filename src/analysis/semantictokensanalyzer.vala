@@ -56,6 +56,11 @@ namespace Vls {
         private Gee.List<Vls.Foundation.InterpolationSpan?> interpolation_spans =
             new Gee.ArrayList<Vls.Foundation.InterpolationSpan?> ();
 
+        // Line-start offset index for file.content, built once per analyzer so
+        // that repeated offset->position conversions (template segments,
+        // interpolation spans) are O(log n) instead of rescanning the buffer.
+        private Vls.Foundation.LineIndex? line_index;
+
         public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
             this.file = file;
             this.captured_templates = template_spans;
@@ -67,6 +72,7 @@ namespace Vls {
             // is compared directly with no position conversion.
             var buf = file.content;
             if (buf != null) {
+                line_index = new Vls.Foundation.LineIndex (buf);
                 foreach (var tmpl in Vls.Foundation.scan_templates (buf)) {
                     if (tmpl.start < 0 || tmpl.end > buf.length)
                         continue;
@@ -85,13 +91,15 @@ namespace Vls {
             return tokens;
         }
 
+        // Composite key capturing the full token identity used both to skip
+        // duplicates (overlapping tokens break LSP clients) and to make
+        // try_emit_token O(1) instead of O(n) per call (n = tokens emitted).
+        private string token_key (uint line, uint character, uint length, uint token_type, uint modifiers) {
+            return @"$line:$character:$length:$token_type:$modifiers";
+        }
+
         private bool try_emit_token (uint line, uint character, uint length, uint token_type, uint modifiers) {
-            // Skip if any existing token covers the exact same position (prevents
-            // undefined behavior from overlapping tokens in LSP clients).
-            foreach (var t in tokens)
-                if (t.line == line && t.character == character && t.length == length)
-                    return false;
-            string key = @"$line:$character:$length:$token_type:$modifiers";
+            string key = token_key (line, character, length, token_type, modifiers);
             if (emitted_tokens.contains (key))
                 return false;
             emitted_tokens.add (key);
@@ -115,6 +123,13 @@ namespace Vls {
             uint length = (uint) (end.column - begin.column + 1);
             if (length == 0)
                 length = 1;
+            // end.column is 1-based and inclusive of the last UTF-8 column, so
+            // (end.column - begin.column + 1) counts UTF-8 code points, not
+            // bytes. For multi-byte characters (e.g. "héllo") that over-counts.
+            // Recompute from the buffer using byte offsets when available.
+            string text = Vls.Foundation.slice_sourceref (source_reference);
+            if (text != null)
+                length = (uint) text.length;
             try_emit_token (line, character, length, token_type, modifiers);
         }
 
@@ -167,7 +182,10 @@ namespace Vls {
                     while (type_offset < text.length && text[type_offset] == ' ')
                         type_offset++;
                     if (type_offset < text.length)
-                        try_emit_token ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1) + (uint) type_offset, (uint) (text.length - type_offset), SemanticTokenType.TYPE, 0);
+                        try_emit_token ((uint) (sr.begin.line - 1),
+                                        (uint) (sr.begin.column - 1) + (uint) type_offset,
+                                        (uint) (text.length - type_offset),
+                                        SemanticTokenType.TYPE, 0);
                     return;
                 }
             }
@@ -223,7 +241,7 @@ namespace Vls {
             uint base_col = (uint) (sr.begin.column - 1);
             uint pos = 0;
             while (pos < text.length) {
-                while (pos < text.length && text[pos] == ' ')
+                while (pos < text.length && (text[pos] == ' ' || text[pos] == '\t'))
                     pos++;
                 if (pos >= text.length || !(text[pos].isalpha () || text[pos] == '_'))
                     break;
@@ -242,11 +260,10 @@ namespace Vls {
         // synthetic to_string()/concat() member accesses that Vala
         // inserts when rewriting template literals.
         private bool overlaps_interpolation (Vala.SourceReference sr) {
-            var buf = file.content;
-            if (buf == null || sr.file != file)
+            if (line_index == null || sr.file != file)
                 return false;
-            long sb = (long) Util.get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-            long se = (long) Util.get_string_pos (buf, (uint) (sr.end.line - 1), (uint) sr.end.column);
+            long sb = line_index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+            long se = line_index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column);
             foreach (var span in interpolation_spans) {
                 // half-open overlap test
                 if (sb < span.end && se > span.start)
@@ -357,10 +374,25 @@ namespace Vls {
         public override void visit_method (Vala.Method m) {
             if (!is_in_file (m))
                 return;
-            emit_leading_keyword_tokens (m.source_reference);
-            add_type_token (m.return_type);
-            uint tok_type = m.coroutine ? SemanticTokenType.FUNCTION : SemanticTokenType.METHOD;
-            add_name_token (m, m.name, tok_type, compute_method_modifiers (m));
+            // An implicit constructor (e.g. `Foo()` for `class Foo`) is
+            // represented as a Method whose name equals the enclosing type and
+            // whose source reference coincides with the type declaration. Its
+            // name token would therefore duplicate the already-emitted class
+            // name token at the exact same position, producing overlapping
+            // tokens (a violation of the LSP semantic-tokens contract). Skip
+            // the name/keyword emission for it; only tokenize its body.
+            bool is_implicit_ctor = current_type_symbol != null
+                && m.source_reference != null
+                && current_type_symbol.source_reference != null
+                && m.name == current_type_symbol.name
+                && m.source_reference.begin.line == current_type_symbol.source_reference.begin.line
+                && m.source_reference.begin.column == current_type_symbol.source_reference.begin.column;
+            if (!is_implicit_ctor) {
+                emit_leading_keyword_tokens (m.source_reference);
+                add_type_token (m.return_type);
+                uint tok_type = m.coroutine ? SemanticTokenType.FUNCTION : SemanticTokenType.METHOD;
+                add_name_token (m, m.name, tok_type, compute_method_modifiers (m));
+            }
             m.accept_children (this);
         }
 
@@ -372,9 +404,10 @@ namespace Vls {
                 && current_type_symbol.source_reference != null
                 && m.source_reference.begin.line == current_type_symbol.source_reference.begin.line
                 && m.source_reference.begin.column == current_type_symbol.source_reference.begin.column;
-            if (!is_implicit)
+            if (!is_implicit) {
                 emit_leading_keyword_tokens (m.source_reference);
-            add_name_token (m, m.class_name, SemanticTokenType.METHOD, compute_method_modifiers (m));
+                add_name_token (m, m.class_name, SemanticTokenType.METHOD, compute_method_modifiers (m));
+            }
             m.accept_children (this);
         }
 
@@ -796,62 +829,73 @@ namespace Vls {
         private void emit_captured_template_tokens () {
             if (captured_templates == null)
                 return;
-            // Use file.content so the byte offsets agree with the
-            // scanner spans and the captured source references
-            // (which are addressed against file.content here).
             var content = file.content;
             if (content == null)
                 return;
             foreach (var ts in captured_templates) {
-                if (ts.template.file != file)
+                emit_template_tokens_for_template (content, ts);
+            }
+        }
+
+        private void emit_template_tokens_for_template (string content, TemplateSpan ts) {
+            if (ts.template.file != file || line_index == null)
+                return;
+            var sr = ts.template;
+            long t_start = line_index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+            long t_end = line_index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column);
+            if (t_end <= t_start)
+                return;
+
+            var spans = build_interpolation_spans (content, ts.expressions);
+            if (spans == null || spans.size == 0) {
+                emit_string_segment (content, t_start, t_end);
+                return;
+            }
+
+            emit_template_gaps (content, t_start, t_end, spans);
+            tokenize_interpolated_expressions (ts.expressions);
+        }
+
+        private Gee.ArrayList<Span?>? build_interpolation_spans (string content, Gee.List<Vala.Expression> expressions) {
+            var spans = new Gee.ArrayList<Span?> ();
+            foreach (var expr in expressions) {
+                var esr = expr.source_reference;
+                if (esr == null || esr.file != file || line_index == null)
                     continue;
-                var sr = ts.template;
-                long t_start = (long) Util.get_string_pos (content, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-                long t_end = (long) Util.get_string_pos (content, (uint) (sr.end.line - 1), (uint) sr.end.column);
-                if (t_end <= t_start)
+                long eb = line_index.byte_offset_for_char ((uint) (esr.begin.line - 1), (uint) (esr.begin.column - 1));
+                long ee = line_index.byte_offset_for_char ((uint) (esr.end.line - 1), (uint) esr.end.column);
+                if (ee > eb)
+                    spans.add (Span () { start = eb, end = ee });
+            }
+            if (spans.size == 0)
+                return null;
+            spans.sort ((a, b) => {
+                if (a.start < b.start) return -1;
+                if (a.start > b.start) return 1;
+                return 0;
+            });
+            return spans;
+        }
+
+        private void tokenize_interpolated_expressions (Gee.List<Vala.Expression> expressions) {
+            foreach (var expr in expressions) {
+                var esr = expr.source_reference;
+                if (esr == null || esr.file != file)
                     continue;
-
-                var spans = new Gee.ArrayList<Span?> ();
-                foreach (var expr in ts.expressions) {
-                    var esr = expr.source_reference;
-                    if (esr == null || esr.file != file)
-                        continue;
-                    long eb = (long) Util.get_string_pos (content, (uint) (esr.begin.line - 1), (uint) (esr.begin.column - 1));
-                    long ee = (long) Util.get_string_pos (content, (uint) (esr.end.line - 1), (uint) esr.end.column);
-                    if (ee > eb)
-                        spans.add (Span () { start = eb, end = ee });
-                }
-                spans.sort ((a, b) => {
-                    if (a.start < b.start) return -1;
-                    if (a.start > b.start) return 1;
-                    return 0;
-                });
-
-                emit_template_gaps (content, t_start, t_end, spans);
-
-                // Tokenize the interpolated expressions themselves.
-                foreach (var expr in ts.expressions) {
-                    var esr = expr.source_reference;
-                    if (esr == null || esr.file != file)
-                        continue;
-                    expr.accept (this);
-                }
+                expr.accept (this);
             }
         }
 
         private void emit_string_segment (string content, long start, long end) {
             if (end <= start)
                 return;
-            long line = 0;
-            long col = 0;
-            for (long i = 0; i < start && i < content.length; i++) {
-                if (content[i] == '\n') {
-                    line++;
-                    col = 0;
-                } else {
-                    col++;
-                }
-            }
+            // Resolve the starting (line, character) via the per-file line
+            // index instead of rescanning from byte 0 (was O(n) per call).
+            var start_pos = line_index != null
+                ? Vls.Foundation.offset_to_position_with (line_index, start)
+                : Vls.Foundation.offset_to_position (content, start);
+            long line = start_pos.line;
+            long col = start_pos.character;
             long pos = start;
             while (pos < end) {
                 long line_end = pos;

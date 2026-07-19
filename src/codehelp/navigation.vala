@@ -42,11 +42,7 @@ namespace Vls.Navigation {
                 return;
             }
             var location = new Location (node.source_reference.file.filename, range);
-            try {
-                ctx.client.reply (ctx.id, Util.object_to_variant (location), Server.cancellable);
-            } catch (Error e) {
-                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
-            }
+            reply_object (location);
         }
     }
 
@@ -75,6 +71,168 @@ namespace Vls.Navigation {
                 handler.run ();
             });
         });
+    }
+
+    /**
+     * textDocument/references and textDocument/documentHighlight handler,
+     * piloted through the RequestHandler framework. Shares the cursor
+     * resolution + source-file iteration that used to be hand-rolled here.
+     */
+    class ReferencesHandler : Server.RequestHandler {
+        private bool is_highlight;
+        private bool include_declaration;
+
+        public ReferencesHandler (Server.RequestContext ctx, bool is_highlight, bool include_declaration) {
+            base (ctx);
+            this.is_highlight = is_highlight;
+            this.include_declaration = include_declaration;
+        }
+
+        public override void run () {
+            var references = new Gee.HashMap<Range, Vala.CodeNode> ();
+
+            var symbol = resolve_symbol ();
+            if (symbol == null) {
+                reply_null ();
+                return;
+            }
+
+            debug ("[%s] got best: %s (%s)", ctx.method, symbol.to_string (), symbol.type_name);
+            if (is_highlight || symbol is Vala.LocalVariable) {
+                // if highlight, show references in current file
+                // otherwise, we may also do this if it's a local variable, since
+                // Server.get_compilations_using_symbol() only works for global symbols
+                SymbolReferences.list_in_file (ctx.file, symbol, include_declaration, true, references);
+            } else {
+                // show references in all files
+                var generated_vapis = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
+                foreach (var btarget in ctx.project.get_compilations ())
+                    generated_vapis.add_all (btarget.output);
+                var shown_files = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
+                foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (ctx.project, symbol))
+                    foreach (Vala.SourceFile project_file in btarget_w_sym.first.code_context.get_source_files ()) {
+                        // don't show symbol from generated VAPI
+                        var file = File.new_for_commandline_arg (project_file.filename);
+                        if (file in generated_vapis || file in shown_files)
+                            continue;
+                        SymbolReferences.list_in_file (project_file, btarget_w_sym.second,
+                                                        include_declaration, true, references);
+                        shown_files.add (file);
+                    }
+            }
+
+            debug ("[%s] found %d reference(s)", ctx.method, references.size);
+            // Emit in a deterministic order (the underlying map is unordered).
+            var entries = new Gee.ArrayList<Gee.Map.Entry<Range, Vala.CodeNode>> ();
+            entries.add_all (references.entries);
+            entries.sort ((a, b) => {
+                int da = (int) a.key.start.line - (int) b.key.start.line;
+                if (da != 0)
+                    return da;
+                return (int) a.key.start.character - (int) b.key.start.character;
+            });
+            var items = new Gee.ArrayList<Object> ();
+            foreach (var entry in entries) {
+                if (is_highlight) {
+                    items.add (new DocumentHighlight () {
+                        range = entry.key,
+                        kind = determine_node_highlight_kind (entry.value)
+                    });
+                } else {
+                    items.add (new Location (entry.value.source_reference.file.filename, entry.key));
+                }
+            }
+
+            reply_array (items);
+        }
+    }
+
+    /**
+     * textDocument/implementation handler, piloted through the RequestHandler
+     * framework. Reuses {@link Server.resolve_best_node} for cursor resolution
+     * and the same per-file implementation search that used to be hand-rolled.
+     */
+    class ImplementationHandler : Server.RequestHandler {
+        public ImplementationHandler (Server.RequestContext ctx) {
+            base (ctx);
+        }
+
+        public override void run () {
+            var resolved = Server.resolve_best_node (ctx.file, (!) ctx.pos);
+            if (resolved == null) {
+                debug ("[%s] no results found", ctx.method);
+                reply_null ();
+                return;
+            }
+
+            var node = (!) resolved;
+            Vala.Symbol symbol;
+
+            var references = new Gee.ArrayList<Vala.CodeNode> ();
+            var items = new Gee.ArrayList<Object> ();
+
+            if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null)
+                node = ((Vala.DataType) node).type_symbol;
+
+            debug ("[%s] got best: %s (%s)", ctx.method, node.to_string (), node.type_name);
+            bool is_abstract_type = (node is Vala.Interface)
+                || ((node is Vala.Class) && ((Vala.Class)node).is_abstract);
+            bool is_abstract_or_virtual_method = (node is Vala.Method) &&
+                (((Vala.Method)node).is_abstract || ((Vala.Method)node).is_virtual);
+            bool is_abstract_or_virtual_property = (node is Vala.Property) &&
+                (((Vala.Property)node).is_abstract || ((Vala.Property)node).is_virtual);
+
+            if (!is_abstract_type && !is_abstract_or_virtual_method && !is_abstract_or_virtual_property) {
+                debug ("[%s] best is neither an abstract type/interface nor abstract/virtual method/property", ctx.method);
+                reply_null ();
+                return;
+            } else {
+                symbol = (Vala.Symbol) node;
+            }
+
+            // show references in all files
+            var generated_vapis = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
+            foreach (var btarget in ctx.project.get_compilations ())
+                generated_vapis.add_all (btarget.output);
+            var shown_files = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
+            foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (ctx.project, symbol)) {
+                foreach (var file in btarget_w_sym.first.code_context.get_source_files ()) {
+                    var gfile = File.new_for_commandline_arg (file.filename);
+                    // don't show symbol from generated VAPI
+                    if (gfile in generated_vapis || gfile in shown_files)
+                        continue;
+
+                    NodeSearch fs2;
+                    if (is_abstract_type) {
+                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
+                        (needle, node) => node is Vala.ObjectTypeSymbol &&
+                            ((Vala.ObjectTypeSymbol)node).is_subtype_of ((Vala.ObjectTypeSymbol) needle), false);
+                    } else if (is_abstract_or_virtual_method) {
+                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
+                        (needle, node) => needle != node && (node is Vala.Method) &&
+                            (((Vala.Method)node).base_method == needle ||
+                            ((Vala.Method)node).base_interface_method == needle), false);
+                    } else {
+                        fs2 = new NodeSearch.with_filter (file, symbol,
+                        (needle, node) => needle != node && (node is Vala.Property) &&
+                            (((Vala.Property)node).base_property == needle ||
+                            ((Vala.Property)node).base_interface_property == needle), false);
+                    }
+                    references.add_all (fs2.result);
+                    shown_files.add (gfile);
+                }
+            }
+
+            debug ("[%s] found %d reference(s)", ctx.method, references.size);
+            foreach (var ref_node in references) {
+                Vala.CodeNode real_node = ref_node;
+                if (ref_node is Vala.Symbol)
+                    real_node = SymbolReferences.find_real_symbol (ctx.project, (Vala.Symbol) ref_node);
+                items.add (new Location.from_sourceref (real_node.source_reference));
+            }
+
+            reply_array (items);
+        }
     }
 
     DocumentHighlightKind determine_node_highlight_kind (Vala.CodeNode node) {
@@ -115,7 +273,6 @@ namespace Vls.Navigation {
 
             bool is_highlight = method == "textDocument/documentHighlight";
             bool include_declaration = p.context != null ? p.context.includeDeclaration : true;
-            Position pos = p.position;
 
             Compilation compilation;
             Project project;
@@ -126,79 +283,12 @@ namespace Vls.Navigation {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-
-            var resolved = Server.resolve_best_node (doc, pos);
-
-            if (resolved == null) {
-                debug (@"[$method] no results found");
-                Server.reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            var node = (!) resolved;
-            Vala.Symbol symbol;
-            var json_array = new Json.Array ();
-            var references = new Gee.HashMap<Range, Vala.CodeNode> ();
-
-            node = (!) Server.unwrap_to_symbol (node);
-
-            // ignore lambda expressions and non-symbols
-            if (!(node is Vala.Symbol) ||
-                node is Vala.Method && ((Vala.Method)node).closure) {
-                Server.reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            symbol = (Vala.Symbol) node;
-
-            debug (@"[$method] got best: $node ($(node.type_name))");
-            if (is_highlight || symbol is Vala.LocalVariable) {
-                // if highlight, show references in current file
-                // otherwise, we may also do this if it's a local variable, since
-                // Server.get_compilations_using_symbol() only works for global symbols
-                SymbolReferences.list_in_file (doc, symbol, include_declaration, true, references);
-            } else {
-                // show references in all files
-                var generated_vapis = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
-                foreach (var btarget in project.get_compilations ())
-                    generated_vapis.add_all (btarget.output);
-                var shown_files = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
-                foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol))
-                    foreach (Vala.SourceFile project_file in btarget_w_sym.first.code_context.get_source_files ()) {
-                        // don't show symbol from generated VAPI
-                        var file = File.new_for_commandline_arg (project_file.filename);
-                        if (file in generated_vapis || file in shown_files)
-                            continue;
-                        SymbolReferences.list_in_file (project_file, btarget_w_sym.second,
-                                                        include_declaration, true, references);
-                        shown_files.add (file);
-                    }
-            }
-
-            debug (@"[$method] found $(references.size) reference(s)");
-            foreach (var entry in references) {
-                if (is_highlight) {
-                    json_array.add_element (Json.gobject_serialize (new DocumentHighlight () {
-                        range = entry.key,
-                        kind = determine_node_highlight_kind (entry.value)
-                    }));
-                } else {
-                    json_array.add_element (Json.gobject_serialize
-                        (new Location (entry.value.source_reference.file.filename, entry.key)));
-                }
-            }
-
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, Server.cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
-            }
-
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new ReferencesHandler (ctx, is_highlight, include_declaration);
+                handler.run ();
+            });
         });
     }
 
@@ -211,8 +301,6 @@ namespace Vls.Navigation {
                 return;
             }
 
-            Position pos = p.position;
-
             Compilation compilation;
             Project project;
             Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
@@ -222,93 +310,12 @@ namespace Vls.Navigation {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-
-            var resolved = Server.resolve_best_node (doc, pos);
-
-            if (resolved == null) {
-                debug (@"[$method] no results found");
-                Server.reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            var node = (!) resolved;
-            Vala.Symbol symbol;
-
-            var json_array = new Json.Array ();
-            var references = new Gee.ArrayList<Vala.CodeNode> ();
-
-            if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null)
-                node = ((Vala.DataType) node).type_symbol;
-
-            debug (@"[$method] got best: $node ($(node.type_name))");
-            bool is_abstract_type = (node is Vala.Interface)
-                || ((node is Vala.Class) && ((Vala.Class)node).is_abstract);
-            bool is_abstract_or_virtual_method = (node is Vala.Method) &&
-                (((Vala.Method)node).is_abstract || ((Vala.Method)node).is_virtual);
-            bool is_abstract_or_virtual_property = (node is Vala.Property) &&
-                (((Vala.Property)node).is_abstract || ((Vala.Property)node).is_virtual);
-
-            if (!is_abstract_type && !is_abstract_or_virtual_method && !is_abstract_or_virtual_property) {
-                debug (@"[$method] best is neither an abstract type/interface nor abstract/virtual method/property");
-                Server.reply_null (id, client, method);
-                Vala.CodeContext.pop ();
-                return;
-            } else {
-                symbol = (Vala.Symbol) node;
-            }
-
-            // show references in all files
-            var generated_vapis = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
-            foreach (var btarget in project.get_compilations ())
-                generated_vapis.add_all (btarget.output);
-            var shown_files = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
-            foreach (var btarget_w_sym in SymbolReferences.get_compilations_using_symbol (project, symbol)) {
-                foreach (var file in btarget_w_sym.first.code_context.get_source_files ()) {
-                    var gfile = File.new_for_commandline_arg (file.filename);
-                    // don't show symbol from generated VAPI
-                    if (gfile in generated_vapis || gfile in shown_files)
-                        continue;
-
-                    NodeSearch fs2;
-                    if (is_abstract_type) {
-                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => node is Vala.ObjectTypeSymbol &&
-                            ((Vala.ObjectTypeSymbol)node).is_subtype_of ((Vala.ObjectTypeSymbol) needle), false);
-                    } else if (is_abstract_or_virtual_method) {
-                        fs2 = new NodeSearch.with_filter (file, btarget_w_sym.second,
-                        (needle, node) => needle != node && (node is Vala.Method) &&
-                            (((Vala.Method)node).base_method == needle ||
-                            ((Vala.Method)node).base_interface_method == needle), false);
-                    } else {
-                        fs2 = new NodeSearch.with_filter (file, symbol,
-                        (needle, node) => needle != node && (node is Vala.Property) &&
-                            (((Vala.Property)node).base_property == needle ||
-                            ((Vala.Property)node).base_interface_property == needle), false);
-                    }
-                    references.add_all (fs2.result);
-                    shown_files.add (gfile);
-                }
-            }
-
-            debug (@"[$method] found $(references.size) reference(s)");
-            foreach (var ref_node in references) {
-                Vala.CodeNode real_node = ref_node;
-                if (ref_node is Vala.Symbol)
-                    real_node = SymbolReferences.find_real_symbol (project, (Vala.Symbol) ref_node);
-                json_array.add_element (Json.gobject_serialize
-                    (new Location.from_sourceref (real_node.source_reference)));
-            }
-
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, Server.cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
-            }
-
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new ImplementationHandler (ctx);
+                handler.run ();
+            });
         });
     }
 }

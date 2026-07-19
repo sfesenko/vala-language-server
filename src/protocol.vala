@@ -143,9 +143,11 @@ namespace Lsp {
         }
 
         public Range.from_sourceref (Vala.SourceReference sref) {
-            this.start = new Position.from_libvala (sref.begin);
-            this.end = new Position.from_libvala (sref.end);
-            this.start.character -= 1;
+            // Delegate to Foundation's tested, null-safe, normalization-aware
+            // algorithm.  The struct→class conversion is the only overhead.
+            var fr = Vls.Foundation.range_from_sourceref (sref);
+            this.start = new Position () { line = fr.start.line, character = fr.start.character };
+            this.end = new Position () { line = fr.end.line, character = fr.end.character };
             this.filename = sref.file.filename;
         }
 

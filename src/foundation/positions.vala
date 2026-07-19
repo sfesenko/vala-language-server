@@ -81,6 +81,11 @@ namespace Vls.Foundation {
     public string? slice_sourceref (Vala.SourceReference? sr) {
         if (sr == null || sr.file == null)
             return null;
+        // Vala always uses 1-based lines/columns, but guard against a
+        // pathological 0 (which would wrap to uint.MAX on subtraction below)
+        // before delegating to the normalizing range math.
+        if (sr.begin.line < 1 || sr.begin.column < 1 || sr.end.line < 1 || sr.end.column < 1)
+            return null;
         var buf = buffer_for (sr.file);
         if (buf == null)
             return null;
@@ -161,36 +166,117 @@ namespace Vls.Foundation {
     }
 
     /**
-     * Convert a byte offset in [buf] to a position (zero-based line,
-     * zero-based UTF-8 character column).
+     * Zero-allocation index of line-start byte offsets for a buffer.
      *
-     * UTF-8 and CRLF safe: lines are counted by {@code '\n'}, and the
-     * character column counts Unicode code points (via {@link string.next_char}),
-     * so it is the inverse of {@link Vls.Util.get_string_pos}. The offset is
-     * clamped to the buffer bounds.
+     * Built once per buffer, it turns the repeated O(n) scans that
+     * {@link Util.get_string_pos} / {@link offset_to_position} otherwise
+     * perform into O(1)/O(log n) lookups. The buffer is held unowned, so the
+     * index must not outlive the content it was built from.
      */
-    public Position offset_to_position (string? buf, long byte_off) {
+    public class LineIndex {
+        private unowned string? buf;
+        // Byte offset of the first character of each line (line 0 starts at 0).
+        private long[] line_starts = {};
+
+        /**
+         * The buffer this index was built from, or null.
+         */
+        public unowned string? content {
+            get { return buf; }
+        }
+
+        public LineIndex (string? content) {
+            buf = content;
+            if (buf == null || buf.length == 0) {
+                line_starts[0] = 0;
+                return;
+            }
+            // First pass: count newlines to size the array exactly.
+            long count = 1;
+            for (long i = 0; i < buf.length; i++)
+                if (buf[i] == '\n')
+                    count++;
+            line_starts = new long[count];
+            // Second pass: record each line's start offset.
+            long idx = 0;
+            line_starts[idx++] = 0;
+            for (long i = 0; i < buf.length; i++)
+                if (buf[i] == '\n')
+                    line_starts[idx++] = i + 1;
+        }
+
+        /**
+         * Byte offset of the first character on [line] (zero-based). Lines past
+         * the end of the buffer return the buffer length.
+         */
+        public long byte_offset (uint line) {
+            if (buf == null)
+                return 0;
+            if (line >= line_starts.length)
+                return buf.length;
+            return line_starts[line];
+        }
+
+        /**
+         * Number of lines recorded (one more than the newline count).
+         */
+        public uint line_count {
+            get { return (uint) line_starts.length; }
+        }
+
+        /**
+         * Byte offset of the [charno]-th UTF-8 code point on [line]
+         * (both zero-based). Equivalent to {@link Vls.Util.get_string_pos} but
+         * O(chars-in-line) instead of O(bytes-in-buffer).
+         */
+        public long byte_offset_for_char (uint line, uint charno) {
+            long start = byte_offset (line);
+            if (buf == null)
+                return start;
+            long cur = start;
+            uint c = 0;
+            while (c < charno && cur < buf.length && buf[cur] != '\0') {
+                cur++;
+                // Skip UTF-8 continuation bytes of this code point.
+                while (cur < buf.length && (buf[cur] & 0xC0) == 0x80)
+                    cur++;
+                c++;
+            }
+            return cur;
+        }
+    }
+
+    /**
+     * Convert a byte offset to a position using a pre-built {@link LineIndex}.
+     *
+     * Prefer this over {@link offset_to_position} when converting many offsets
+     * against the same buffer: the index is built once and reused, so the
+     * per-call cost is O(log n) (binary search over line starts) instead of
+     * rescanning the buffer each time.
+     */
+    public Position offset_to_position_with (LineIndex index, long byte_off) {
         var pos = Position ();
-        if (buf == null)
+        if (index.content == null)
             return pos;
+        string buf = index.content;
         long total = buf.length;
         if (byte_off < 0)
             byte_off = 0;
         if (byte_off > total)
             byte_off = total;
-        uint line = 0;
-        for (long i = 0; i < byte_off; i++) {
-            if (buf[i] == '\n')
-                line++;
+        // Find the line whose start is the greatest offset <= byte_off.
+        // line_starts is sorted ascending, so binary search is safe.
+        uint lo = 0, hi = index.line_count;
+        while (lo < hi) {
+            uint mid = lo + (hi - lo) / 2;
+            if (index.byte_offset (mid) <= byte_off)
+                lo = mid + 1;
+            else
+                hi = mid;
         }
-        long line_start = byte_off;
-        for (long j = byte_off - 1; j >= 0; j--) {
-            if (buf[j] == '\n') {
-                line_start = j + 1;
-                break;
-            }
-        }
-        string line_str = buf.substring ((long) line_start, (long) (byte_off - line_start));
+        uint line = lo > 0 ? lo - 1 : 0;
+        long line_start = index.byte_offset (line);
+        string line_str = buf.substring (line_start, byte_off - line_start);
         uint character = 0;
         string p = line_str;
         while (p[0] != '\0') {
@@ -200,5 +286,26 @@ namespace Vls.Foundation {
         pos.line = line;
         pos.character = character;
         return pos;
+    }
+
+    /**
+     * Convert a byte offset in [buf] to a position (zero-based line,
+     * zero-based UTF-8 character column).
+     *
+     * UTF-8 and CRLF safe: lines are counted by {@code '\n'}, and the
+     * character column counts Unicode code points (via {@link string.next_char}),
+     * so it is the inverse of {@link Vls.Util.get_string_pos}. The offset is
+     * clamped to the buffer bounds.
+     *
+     * This convenience wrapper builds a fresh {@link LineIndex} on every call,
+     * so it is O(buffer) per invocation (suitable for one-shot callers). For
+     * repeated conversions against the same buffer, build a {@link LineIndex}
+     * once and use {@link offset_to_position_with} instead — its binary search
+     * keeps the per-call cost at O(log n).
+     */
+    public Position offset_to_position (string? buf, long byte_off) {
+        if (buf == null)
+            return Position ();
+        return offset_to_position_with (new LineIndex (buf), byte_off);
     }
 }

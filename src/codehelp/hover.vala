@@ -22,32 +22,26 @@ using Vala;
 using Lsp;
 
 namespace Vls.HoverHandler {
-    void hover (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
+    /**
+     * textDocument/hover handler, piloted through the RequestHandler
+     * framework. The {@link Server.RequestContext} carries the cursor position
+     * and file, and {@link Server.with_code_context} guarantees the Vala code
+     * context is popped on every return path (the old code balanced it by hand
+     * on each early return).
+     */
+    class HoverHandler : Server.RequestHandler {
+        public HoverHandler (Server.RequestContext ctx) {
+            base (ctx);
+        }
 
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, "textDocument/hover");
-                return;
-            }
-
-            Position pos = p.position;
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Vala.CodeContext.push (compilation.code_context);
+        public override void run () {
+            var pos = (!) ctx.pos;
+            var doc = ctx.file;
 
             var resolved = Server.resolve_best_node (doc, pos);
 
             if (resolved == null) {
-                Server.reply_null (id, client, method);
-                Vala.CodeContext.pop ();
+                reply_null ();
                 return;
             }
 
@@ -57,8 +51,7 @@ namespace Vls.HoverHandler {
             // don't show property accessors
             if (node is Vala.Method && ((Vala.Method)node).closure ||
                 node is Vala.PropertyAccessor) {
-                Server.reply_null (id, client, "textDocument/hover");
-                Vala.CodeContext.pop ();
+                reply_null ();
                 return;
             }
 
@@ -143,7 +136,7 @@ namespace Vls.HoverHandler {
                 });
 
                 if (symbol != null) {
-                    var comment = server.get_symbol_documentation (project, symbol);
+                    var comment = ctx.server.get_symbol_documentation (ctx.project, symbol);
                     if (comment != null) {
                         hoverInfo.contents.add (new MarkedString () {
                             value = comment.body
@@ -152,13 +145,34 @@ namespace Vls.HoverHandler {
                 }
             }
 
-            try {
-                client.reply (id, Util.object_to_variant (hoverInfo), Server.cancellable);
-            } catch (Error e) {
-                warning ("[%s] failed to reply to client: %s", method, e.message);
+            reply_object (hoverInfo);
+        }
+    }
+
+    void hover (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
+
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, "textDocument/hover");
+                return;
             }
 
-            Vala.CodeContext.pop ();
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Server.reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new HoverHandler (ctx);
+                handler.run ();
+            });
         });
     }
 }

@@ -56,6 +56,13 @@ namespace Vls.Foundation {
         /**
          * Build a semantic-tokens delta response.
          *
+         * KNOWN LIMITATION: this currently emits a single edit that deletes
+         * the entire previous array and inserts the full new data — i.e. it is
+         * a full replacement rather than a minimal incremental diff. It is
+         * functionally correct (clients accept full-replacement deltas) but
+         * defeats part of the delta protocol's purpose. TODO: compute a true
+         * minimal edit between old_data and new_data.
+         *
          * @param result_id  an opaque string for the next delta request
          * @param old_data   the previous full/delta data (used to compute
          *                   `deleteCount`)

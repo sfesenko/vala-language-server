@@ -22,27 +22,24 @@ using Vala;
 using Lsp;
 
 namespace Vls.InlayHints {
-    void show_inlay_hints (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<InlayHintParams> (@params);
+    class InlayHintHandler : Server.RequestHandler {
+        private InlayHintParams p;
 
-        Compilation? compilation;
-        var file = server.find_file (p.textDocument.uri, out compilation);
-        if (file == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.reply_null (id, client, method);
-            return;
+        public InlayHintHandler (Server.RequestContext ctx, InlayHintParams p) {
+            base (ctx);
+            this.p = p;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
-        var query = new NodeSearch.within (file, p.range, false);
-        if (query.result.is_empty) {
-            debug ("[%s] nothing found at %s", method, p.range.to_string ());
-            Vala.CodeContext.pop ();
-            Server.reply_null (id, client, method);
-            return;
-        }
+        public override void run () {
+            var compilation = ctx.compilation;
+            var query = new NodeSearch.within (ctx.file, p.range, false);
+            if (query.result.is_empty) {
+                debug ("[%s] nothing found at %s", ctx.method, p.range.to_string ());
+                reply_null ();
+                return;
+            }
 
-        InlayHint[] hints = {};
+            InlayHint[] hints = {};
 
         foreach (var item in query.result) {
             Vala.LocalVariable? local = null;
@@ -164,14 +161,43 @@ namespace Vls.InlayHints {
             }
         }
 
-        Vala.CodeContext.pop ();
         try {
             Variant[] array = {};
             foreach (var hint in hints)
                 array += Util.object_to_variant (hint);
-            client.reply (id, new Variant.array (VariantType.VARDICT, array), Server.cancellable);
+            reply_dict (new Variant.array (VariantType.VARDICT, array));
         } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+            debug (@"[%s] failed to reply to client: $(e.message)", ctx.method);
         }
+        }
+    }
+
+    void show_inlay_hints (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<InlayHintParams> (@params);
+
+        Compilation? compilation;
+        var file = server.find_file (p.textDocument.uri, out compilation);
+        if (file == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.reply_null (id, client, method);
+            return;
+        }
+
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
+            }
+
+            Project project;
+            Compilation comp;
+            server.find_file (p.textDocument.uri, out comp, out project);
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) file, comp, project, p.range.start);
+            Server.with_code_context (comp.code_context, () => {
+                var handler = new InlayHintHandler (ctx, p);
+                handler.run ();
+            });
+        });
     }
 }

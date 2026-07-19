@@ -33,12 +33,29 @@ namespace Vls.CompletionEngine {
         return prefix.str;
     }
 
-    void begin_response (Server lang_serv, Project project,
-                         Jsonrpc.Client client, Variant id, string method,
-                         Vala.SourceFile doc, Compilation compilation,
-                         Position pos, CompletionContext? completion_context) {
-        bool is_pointer_access = false;
-        long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+    class CompletionHandler : Server.RequestHandler {
+        private Position pos;
+        private CompletionContext? completion_context;
+
+        public CompletionHandler (Server.RequestContext ctx, Position pos, CompletionContext? completion_context) {
+            base (ctx);
+            this.pos = pos;
+            this.completion_context = completion_context;
+        }
+
+        public override void run () {
+            Server lang_serv = ctx.server;
+            Project project = ctx.project;
+            Jsonrpc.Client client = ctx.client;
+            Variant id = ctx.id;
+            string method = ctx.method;
+            Vala.SourceFile doc = ctx.file;
+            Compilation compilation = ctx.compilation;
+            Position pos = this.pos;
+            CompletionContext? completion_context = this.completion_context;
+
+            bool is_pointer_access = false;
+            long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
 
         Position end_pos = pos.dup ();
         bool is_member_access = false;
@@ -109,7 +126,6 @@ namespace Vls.CompletionEngine {
 
         string prefix = extract_line_prefix (doc, pos);
 
-        Vala.CodeContext.push (compilation.code_context);
         if (is_member_access) {
             // attempt SymbolExtractor first, and if that fails, then wait for
             // the next context update
@@ -178,20 +194,14 @@ namespace Vls.CompletionEngine {
             }
             finish (client, id, completions);
         }
-        Vala.CodeContext.pop ();
+        }
     }
 
     void finish (Jsonrpc.Client client, Variant id, Collection<CompletionItem> completions) {
-        var json_array = new Json.Array ();
+        var items = new ArrayList<Object> ();
         foreach (CompletionItem comp in completions)
-            json_array.add_element (Json.gobject_serialize (comp));
-
-        try {
-            Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-            client.reply (id, variant_array, Server.cancellable);
-        } catch (Error e) {
-            warning (@"[textDocument/completion] failed to reply to client: $(e.message)");
-        }
+            items.add (comp);
+        Server.reply_array (client, id, items);
     }
 
     void walk_up_current_scope (Server lang_serv,

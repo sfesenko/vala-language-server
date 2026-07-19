@@ -31,8 +31,8 @@ void test_inlay_hint () {
             end: h.build_dict (line: new Variant.int32 (4), character: new Variant.int32 (1))
         )
     ));
-    if (res != null)
-        assert (res.is_of_type (VariantType.ARRAY));
+    assert (res != null);
+    assert (res.is_of_type (VariantType.ARRAY));
     teardown_session (s);
 }
 
@@ -42,9 +42,8 @@ void test_workspace_symbol () {
     Variant? res = Helpers.sync_call (s.client, "workspace/symbol", h.build_dict (
         query: new Variant.string ("Foo")
     ));
-    if (res != null) {
-        assert (res.is_of_type (VariantType.ARRAY));
-    }
+    assert (res != null);
+    assert (res.is_of_type (VariantType.ARRAY));
     teardown_session (s);
 }
 
@@ -59,16 +58,15 @@ void test_formatting () {
         textDocument: h.build_dict (uri: new Variant.string (s.uri)),
         options: h.build_dict (tabSize: new Variant.int32 (4), insertSpaces: new Variant.boolean (true))
     ));
-    if (res != null) {
-        assert (res.is_of_type (VariantType.ARRAY));
-        if (res.n_children () > 0) {
+    assert (res != null);
+    assert (res.is_of_type (VariantType.ARRAY));
+    if (res.n_children () > 0) {
             Variant first = res.get_child_value (0);
             if (first.is_of_type (VariantType.VARIANT))
                 first = first.get_variant ();
             assert (first.is_of_type (VariantType.VARDICT));
             assert (first.lookup_value ("range", null) != null);
             assert (first.lookup_value ("newText", null) != null);
-        }
     }
     teardown_session (s);
 }
@@ -98,10 +96,9 @@ void test_references () {
         position: h.build_dict (line: new Variant.int32 (1), character: new Variant.int32 (17)),
         context: h.build_dict (includeDeclaration: new Variant.boolean (true))
     ));
-    if (res != null) {
-        assert (res.is_of_type (VariantType.ARRAY));
-        assert (res.n_children () > 0);
-    }
+    assert (res != null);
+    assert (res.is_of_type (VariantType.ARRAY));
+    assert (res.n_children () > 0);
     teardown_session (s);
 }
 
@@ -112,9 +109,8 @@ void test_document_highlight () {
         textDocument: h.build_dict (uri: new Variant.string (s.uri)),
         position: h.build_dict (line: new Variant.int32 (1), character: new Variant.int32 (17))
     ));
-    if (res != null) {
-        assert (res.is_of_type (VariantType.ARRAY));
-        assert (res.n_children () > 0);
-    }
+    assert (res != null);
+    assert (res.is_of_type (VariantType.ARRAY));
+    assert (res.n_children () > 0);
     teardown_session (s);
 }

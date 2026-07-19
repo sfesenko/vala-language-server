@@ -1,0 +1,1 @@
+[{"label":"baz","kind":2,"detail":"void Foo.baz ()","tags":[],"insertText":"baz ()$0","insertTextFormat":2},{"label":"bar","kind":2,"detail":"int Foo.bar ()","tags":[],"insertText":"bar ()$0","insertTextFormat":2}]

@@ -114,6 +114,7 @@ class TestSession {
     public Subprocess server;
     public string uri;
     public File root;
+    public string filename;
 }
 
 TestSession setup_session (string fixture, string? fixture_name = null) {
@@ -180,6 +181,7 @@ TestSession setup_session (string fixture, string? fixture_name = null) {
     s.server = server;
     s.uri = uri;
     s.root = root;
+    s.filename = fixture_name;
     return s;
 }
 
@@ -187,7 +189,7 @@ void teardown_session (TestSession s) {
     Helpers.notify (s.client, "exit", Helpers.empty_dict ());
     s.server.force_exit ();
     try {
-        s.root.get_child ("sample.vala").@delete ();
+        s.root.get_child (s.filename).@delete ();
         s.root.@delete ();
     } catch (Error e) {}
 }
@@ -309,13 +311,63 @@ const string HIERARCHY_FIXTURE = """public abstract class Base {
     public abstract void do_it ();
 }
 public class Derived : Base {
-    public override void do_it () {}
+    public override void do_it () { helper (); }
+    public void caller () {
+        do_it ();
+        Base b = new Derived ();
+    }
+    void helper () {}
 }
 """;
 
 const string TEMPLATE_STRING_FIXTURE = """public class Foo {
     public string build_name (string ns, string ver) {
         return @"$(ns)-$(ver)";
+    }
+}
+""";
+
+const string SIGNATURE_HELP_FIXTURE = """public class Foo {
+    public int add (int a, int b) {
+        return a + b;
+    }
+    public void use () {
+        add (1, 2);
+    }
+}
+""";
+
+const string CODELENS_FIXTURE = """public abstract class Base {
+    public abstract void do_it ();
+}
+public class Derived : Base {
+    public override void do_it () {}
+}
+""";
+
+const string CODEACTION_FIXTURE = """public enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+public class Foo {
+    public void bar (Color c) {
+        int x = 5;
+        switch (c) {
+            case Color.RED:
+                break;
+        }
+    }
+}
+""";
+
+const string INLAY_HINT_FIXTURE = """public class Foo {
+    public void run (string[] items) {
+        var sum = items;
+        foreach (var item in items) {
+            var x = item;
+        }
     }
 }
 """;

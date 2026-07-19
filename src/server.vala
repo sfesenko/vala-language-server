@@ -569,6 +569,44 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     /**
+     * Reply with a JSON array serialized from an already-built {@link Json.Array}.
+     * Use when the reply elements are not a uniform {@link Gee.Collection<Object>}
+     * (e.g. mixed {@link Location}/{@link DocumentHighlight} entries).
+     */
+    public static void reply_json_array (Jsonrpc.Client client, Variant id, Json.Array array, string method = "") {
+        try {
+            Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
+            client.reply (id, result, cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    /**
+     * Reply with a single GObject serialized to JSON.
+     */
+    public static void reply_object (Jsonrpc.Client client, Variant id, Object obj, string method = "") {
+        try {
+            client.reply (id, Util.object_to_variant (obj), cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    /**
+     * Reply with an already-built variant dict (e.g. from
+     * {@link Server.build_dict}). Use when the reply shape is not a single
+     * serialized GObject.
+     */
+    public static void reply_dict (Jsonrpc.Client client, Variant id, Variant dict, string method = "") {
+        try {
+            client.reply (id, dict, cancellable);
+        } catch (Error e) {
+            debug (@"[$method] failed to reply to client: $(e.message)");
+        }
+    }
+
+    /**
      * Callback run inside {@link with_code_context}.
      */
     public delegate void ContextCallback ();
@@ -595,13 +633,13 @@ class Vls.Server : Jsonrpc.Server {
         public Jsonrpc.Client client;
         public Variant id;
         public string method;
-        public Vala.SourceFile file;
-        public Compilation compilation;
-        public Project project;
+        public Vala.SourceFile? file;
+        public Compilation? compilation;
+        public Project? project;
         public Lsp.Position? pos;
 
         public RequestContext (Server server, Jsonrpc.Client client, Variant id, string method,
-                                Vala.SourceFile file, Compilation compilation, Project project,
+                                Vala.SourceFile? file, Compilation? compilation, Project? project,
                                 Lsp.Position? pos = null) {
             this.server = server;
             this.client = client;
@@ -640,6 +678,45 @@ class Vls.Server : Jsonrpc.Server {
 
         protected void reply_array (Gee.Collection<Object> items) {
             Server.reply_array (ctx.client, ctx.id, items, ctx.method);
+        }
+
+        protected void reply_json_array (Json.Array array) {
+            Server.reply_json_array (ctx.client, ctx.id, array, ctx.method);
+        }
+
+        protected void reply_object (Object obj) {
+            Server.reply_object (ctx.client, ctx.id, obj, ctx.method);
+        }
+
+        protected void reply_dict (Variant dict) {
+            Server.reply_dict (ctx.client, ctx.id, dict, ctx.method);
+        }
+
+protected void reply_error (int code, string message) {
+            Server.reply_error (ctx.client, ctx.id, code, message, ctx.method);
+        }
+
+        /**
+         * Resolve the code node at {@link RequestContext.pos} to a symbol,
+         * applying the standard unwrap and filtering rules (expressions →
+         * symbol_reference, datatypes → type_symbol, using directives →
+         * namespace_symbol). Returns null if no symbol is found, if the node
+         * is a non-symbol (literal, statement, block, etc.), or if it's a
+         * closure lambda.
+         */
+        protected Vala.Symbol? resolve_symbol () {
+            if (ctx.pos == null)
+                return null;
+            var resolved = Server.resolve_best_node (ctx.file, (!) ctx.pos);
+            if (resolved == null)
+                return null;
+            var node = (!) Server.unwrap_to_symbol (resolved);
+            if (!(node is Vala.Symbol))
+                return null;
+            var sym = (Vala.Symbol) node;
+            if (sym is Vala.Method && ((Vala.Method)sym).closure)
+                return null;
+            return sym;
         }
     }
 
@@ -1300,10 +1377,12 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-        CompletionEngine.begin_response (this, project,
-                                         client, id, method,
-                                         file, compilation,
-                                         p.position, p.context);
+        var ctx = new RequestContext (this, client, id, method,
+                                      (!) file, compilation, project, p.position);
+        with_code_context (compilation.code_context, () => {
+            var handler = new CompletionEngine.CompletionHandler (ctx, p.position, p.context);
+            handler.run ();
+        });
     }
 
     void show_signature_help (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1318,10 +1397,36 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-        SignatureHelpEngine.begin_response (this, project,
-                                            client, id, method,
-                                            file, compilation,
-                                            p.position);
+        var ctx = new RequestContext (this, client, id, method,
+                                      file, compilation, project, p.position);
+        with_code_context (compilation.code_context, () => {
+            var handler = new SignatureHelpEngine.SignatureHelpHandler (ctx, p.position);
+            handler.run ();
+        });
+    }
+
+    class FormatHandler : RequestHandler {
+        private DocumentRangeFormattingParams p;
+
+        public FormatHandler (RequestContext ctx, DocumentRangeFormattingParams p) {
+            base (ctx);
+            this.p = p;
+        }
+
+        public override void run () {
+            var json_array = new Json.Array ();
+            TextEdit edited;
+            var code_style = ctx.compilation.get_analysis_for_file<CodeStyleAnalyzer> (ctx.file);
+            try {
+                edited = Formatter.format (p.options, code_style, ctx.file, p.range, cancellable);
+            } catch (Error e) {
+                reply_error (Jsonrpc.ClientError.INTERNAL_ERROR, e.message);
+                warning ("Formatting failed: %s", e.message);
+                return;
+            }
+            json_array.add_element (Json.gobject_serialize (edited));
+            reply_json_array (json_array);
+        }
     }
 
     void format (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1335,22 +1440,40 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-        var json_array = new Json.Array ();
-        TextEdit edited;
-        var code_style = compilation.get_analysis_for_file<CodeStyleAnalyzer> (source_file);
-        try {
-            edited = Formatter.format (p.options, code_style, source_file, p.range, cancellable);
-        } catch (Error e) {
-            Server.reply_error (client, id, Jsonrpc.ClientError.INTERNAL_ERROR, e.message, method);
-            warning ("Formatting failed: %s", e.message);
-            return;
+        wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+            var ctx = new RequestContext (this, client, id, method,
+                                          (!) source_file, compilation, null);
+            with_code_context (compilation.code_context, () => {
+                var handler = new FormatHandler (ctx, p);
+                handler.run ();
+            });
+        });
+    }
+
+    class CodeActionHandler : RequestHandler {
+        private CodeActionParams p;
+
+        public CodeActionHandler (RequestContext ctx, CodeActionParams p) {
+            base (ctx);
+            this.p = p;
         }
-        json_array.add_element (Json.gobject_serialize (edited));
-        try {
-            Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-            client.reply (id, variant_array, cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+
+        public override void run () {
+            if (!(ctx.file is TextDocument)) {
+                reply_null ();
+                return;
+            }
+            var json_array = new Json.Array ();
+            var code_actions = CodeActions.extract (p.context, ctx.compilation,
+                                                    (TextDocument) ctx.file, p.range,
+                                                    Uri.unescape_string (p.textDocument.uri));
+            foreach (var action in code_actions)
+                json_array.add_element (Json.gobject_serialize (action));
+            reply_json_array (json_array);
         }
     }
 
@@ -1365,25 +1488,18 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-        if (!(source_file is TextDocument)) {
-            reply_null (id, client, method);
-            return;
-        }
-        var json_array = new Json.Array ();
-
-        Vala.CodeContext.push (compilation.code_context);
-        var code_actions = CodeActions.extract (p.context, compilation,
-                                                (TextDocument) source_file, p.range,
-                                                Uri.unescape_string (p.textDocument.uri));
-        foreach (var action in code_actions)
-            json_array.add_element (Json.gobject_serialize (action));
-        Vala.CodeContext.pop ();
-        try {
-            Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-            client.reply (id, variant_array, cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
-        }
+        wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+            var ctx = new RequestContext (this, client, id, method,
+                                          (!) source_file, compilation, null);
+            with_code_context (compilation.code_context, () => {
+                var handler = new CodeActionHandler (ctx, p);
+                handler.run ();
+            });
+        });
     }
 
     /**

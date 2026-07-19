@@ -20,22 +20,35 @@ using Gee;
 using Lsp;
 
 namespace Vls.SignatureHelpEngine {
-    void begin_response (Server lang_serv, Project project,
-                         Jsonrpc.Client client, Variant id, string method,
-                         Vala.SourceFile doc, Compilation compilation,
-                         Position pos) {
-        // long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+    class SignatureHelpHandler : Server.RequestHandler {
+        private Position pos;
 
-        // if (idx >= 2 && doc.content[idx-1:idx] == "(") {
-        //     debug ("[textDocument/signatureHelp] possible argument list");
-        // } else if (idx >= 1 && doc.content[idx-1:idx] == ",") {
-        //     debug ("[textDocument/signatureHelp] possible ith argument in list");
-        // }
+        public SignatureHelpHandler (Server.RequestContext ctx, Position pos) {
+            base (ctx);
+            this.pos = pos;
+        }
 
-        var signatures = new ArrayList<SignatureInformation> ();
-        int active_param = -1;
+        public override void run () {
+            Server lang_serv = ctx.server;
+            Project project = ctx.project;
+            Jsonrpc.Client client = ctx.client;
+            Variant id = ctx.id;
+            string method = ctx.method;
+            Vala.SourceFile doc = ctx.file;
+            Compilation compilation = ctx.compilation;
+            Position pos = this.pos;
 
-        Vala.CodeContext.push (compilation.code_context);
+            // long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+
+            // if (idx >= 2 && doc.content[idx-1:idx] == "(") {
+            //     debug ("[textDocument/signatureHelp] possible argument list");
+            // } else if (idx >= 1 && doc.content[idx-1:idx] == ",") {
+            //     debug ("[textDocument/signatureHelp] possible ith argument in list");
+            // }
+
+            var signatures = new ArrayList<SignatureInformation> ();
+            int active_param = -1;
+
         // debug ("[%s] extracting expression ...", method);
         var se = new SymbolExtractor (pos, doc, compilation.code_context);
         if (se.extracted_expression != null) {
@@ -70,7 +83,7 @@ namespace Vls.SignatureHelpEngine {
         } else {
             finish (client, id, signatures, active_param);
         }
-        Vala.CodeContext.pop ();
+        }
     }
 
     void show_help (Server lang_serv, Project project,
@@ -292,15 +305,11 @@ namespace Vls.SignatureHelpEngine {
     }
 
     void finish (Jsonrpc.Client client, Variant id, Collection<SignatureInformation> signatures, int active_param) {
-        try {
-            // debug ("sending with active_param = %d", active_param);
-            client.reply (id, Util.object_to_variant (new SignatureHelp () {
-                signatures = signatures,
-                activeParameter = active_param
-            }), Server.cancellable);
-        } catch (Error e) {
-            warning (@"[textDocument/signatureHelp] failed to reply to client: $(e.message)");
-        }
+        // debug ("sending with active_param = %d", active_param);
+        Server.reply_object (client, id, new SignatureHelp () {
+            signatures = signatures,
+            activeParameter = active_param
+        });
     }
 
     Vala.List<Vala.Parameter>? generate_parameters_for_printf_method (Vala.Method method,

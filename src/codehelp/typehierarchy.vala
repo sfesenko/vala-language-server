@@ -93,6 +93,59 @@ namespace Vls.TypeHierarchy {
         return supertypes;
     }
 
+    class PrepareTypeHierarchyHandler : Server.RequestHandler {
+        private TextDocumentPositionParams p;
+
+        public PrepareTypeHierarchyHandler (Server.RequestContext ctx, TextDocumentPositionParams p) {
+            base (ctx);
+            this.p = p;
+        }
+
+        public override void run () {
+            var resolved = Server.resolve_best_node (ctx.file, p.position);
+
+            if (resolved == null) {
+                debug ("[%s] no results found", ctx.method);
+                reply_null ();
+                return;
+            }
+
+            var node = (!) resolved;
+            Vala.TypeSymbol type_symbol;
+
+            if (node is Vala.TypeSymbol) {
+                type_symbol = (Vala.TypeSymbol)node;
+            } else if (node is Vala.Callable && ((Vala.Callable)node).parent_symbol is Vala.TypeSymbol) {
+                type_symbol = (Vala.TypeSymbol)((Vala.Callable)node).parent_symbol;
+            } else if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null) {
+                type_symbol = ((Vala.DataType)node).type_symbol;
+            } else if (node is Vala.Expression && ((Vala.Expression)node).symbol_reference is Vala.TypeSymbol) {
+                type_symbol = (Vala.TypeSymbol)((Vala.Expression)node).symbol_reference;
+                // refine the symbol
+                foreach (var pair in SymbolReferences.get_visible_components_of_code_node (node)) {
+                    var symbol = pair.first;
+                    var range = pair.second;
+                    if (symbol is Vala.TypeSymbol && range.contains (p.position)) {
+                        type_symbol = (Vala.TypeSymbol)symbol;
+                        break;
+                    }
+                }
+            } else {
+                reply_null ();
+                return;
+            }
+
+            try {
+                var array = new Variant.array (VariantType.VARDICT, {
+                    Util.object_to_variant (new TypeHierarchyItem.from_symbol (type_symbol))
+                });
+                reply_dict (array);
+            } catch (Error e) {
+                warning ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
+        }
+    }
+
     void prepare_type_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<TextDocumentPositionParams> (@params);
 
@@ -105,48 +158,51 @@ namespace Vls.TypeHierarchy {
             return;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
-
-        var resolved = Server.resolve_best_node (doc, p.position, false);
-
-        if (resolved == null) {
-            debug (@"[$method] no results found");
-            Server.reply_null (id, client, method);
-            Vala.CodeContext.pop ();
-            return;
-        }
-
-        var node = (!) resolved;
-        Vala.CodeContext.pop ();
-        Vala.TypeSymbol type_symbol;
-
-        if (node is Vala.TypeSymbol) {
-            type_symbol = (Vala.TypeSymbol)node;
-        } else if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null) {
-            type_symbol = ((Vala.DataType)node).type_symbol;
-        } else if (node is Vala.Expression && ((Vala.Expression)node).symbol_reference is Vala.TypeSymbol) {
-            type_symbol = (Vala.TypeSymbol)((Vala.Expression)node).symbol_reference;
-            // refine the symbol
-            foreach (var pair in SymbolReferences.get_visible_components_of_code_node (node)) {
-                var symbol = pair.first;
-                var range = pair.second;
-                if (symbol is Vala.TypeSymbol && range.contains (p.position)) {
-                    type_symbol = (Vala.TypeSymbol)symbol;
-                    break;
-                }
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
             }
-        } else {
-            Server.reply_null (id, client, method);
-            return;
+
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new PrepareTypeHierarchyHandler (ctx, p);
+                handler.run ();
+            });
+        });
+    }
+
+    class ShowTypeHierarchyHandler : Server.RequestHandler {
+        private TypeHierarchyItem item;
+        private bool supertypes;
+
+        public ShowTypeHierarchyHandler (Server.RequestContext ctx, TypeHierarchyItem item, bool supertypes) {
+            base (ctx);
+            this.item = item;
+            this.supertypes = supertypes;
         }
 
-        try {
-            var array = new Variant.array (null, {
-                Util.object_to_variant (new TypeHierarchyItem.from_symbol (type_symbol))
-            });
-            client.reply (id, array, Server.cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+        public override void run () {
+            var symbol = CodeHelp.lookup_symbol_full_name (item.name, ctx.compilation.code_context.root.scope);
+            if (!(symbol is Vala.TypeSymbol)) {
+                reply_null ();
+                return;
+            }
+
+            try {
+                Variant[] array = {};
+                if (supertypes) {
+                    foreach (var st in get_supertypes (ctx.project, (Vala.TypeSymbol)symbol))
+                        array += Util.object_to_variant (st);
+                } else {
+                    foreach (var st in get_subtypes (ctx.project, (Vala.TypeSymbol)symbol))
+                        array += Util.object_to_variant (st);
+                }
+                reply_dict (new Variant.array (VariantType.VARDICT, array));
+            } catch (Error e) {
+                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
         }
     }
 
@@ -163,27 +219,18 @@ namespace Vls.TypeHierarchy {
             return;
         }
 
-        Vala.CodeContext.push (compilation.code_context);
-        var symbol = CodeHelp.lookup_symbol_full_name (item.name, compilation.code_context.root.scope);
-        if (!(symbol is Vala.TypeSymbol)) {
-            Vala.CodeContext.pop ();
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        try {
-            Variant[] array = {};
-            if (supertypes) {
-                foreach (var st in get_supertypes (project, (Vala.TypeSymbol)symbol))
-                    array += Util.object_to_variant (st);
-            } else {
-                foreach (var st in get_subtypes (project, (Vala.TypeSymbol)symbol))
-                    array += Util.object_to_variant (st);
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
             }
-            Vala.CodeContext.pop ();
-            client.reply (id, array, Server.cancellable);
-        } catch (Error e) {
-            debug (@"[$method] failed to reply to client: %s", e.message);
-        }
+
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new ShowTypeHierarchyHandler (ctx, item, supertypes);
+                handler.run ();
+            });
+        });
     }
 }

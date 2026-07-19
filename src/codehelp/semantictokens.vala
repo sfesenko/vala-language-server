@@ -111,8 +111,63 @@ namespace Vls.SemanticTokensHandler {
         }
     }
 
+    /**
+     * textDocument/semanticTokens/full handler, piloted through the
+     * RequestHandler framework. The shared result cache lives at module level
+     * (it is keyed by document URI across requests), so the handler only reads
+     * the analysis and delegates the reply to {@link reply_with_tokens}.
+     */
+    class SemanticTokensFullHandler : Server.RequestHandler {
+        private string doc_uri;
+
+        public SemanticTokensFullHandler (Server.RequestContext ctx, string doc_uri) {
+            base (ctx);
+            this.doc_uri = doc_uri;
+        }
+
+        public override void run () {
+            var tokens = ctx.compilation.get_analysis_for_file<SemanticTokensAnalyzer> (ctx.file);
+            var data = Util.delta_encode (tokens.get_tokens ());
+            reply_with_tokens (ctx.server, ctx.client, ctx.method, ctx.id, data, null, doc_uri);
+        }
+    }
+
+    class SemanticTokensDeltaHandler : Server.RequestHandler {
+        private string doc_uri;
+        private string? previous_result_id;
+
+        public SemanticTokensDeltaHandler (Server.RequestContext ctx, string doc_uri, string? previous_result_id) {
+            base (ctx);
+            this.doc_uri = doc_uri;
+            this.previous_result_id = previous_result_id;
+        }
+
+        public override void run () {
+            var tokens = ctx.compilation.get_analysis_for_file<SemanticTokensAnalyzer> (ctx.file);
+            var data = Util.delta_encode (tokens.get_tokens ());
+            reply_with_tokens (ctx.server, ctx.client, ctx.method, ctx.id, data, previous_result_id, doc_uri);
+        }
+    }
+
+    class SemanticTokensRangeHandler : Server.RequestHandler {
+        private string doc_uri;
+        private Range range;
+
+        public SemanticTokensRangeHandler (Server.RequestContext ctx, string doc_uri, Range range) {
+            base (ctx);
+            this.doc_uri = doc_uri;
+            this.range = range;
+        }
+
+        public override void run () {
+            var tokens = ctx.compilation.get_analysis_for_file<SemanticTokensAnalyzer> (ctx.file);
+            var data = filter_to_range (tokens.get_tokens (), range);
+            reply_with_tokens (ctx.server, ctx.client, ctx.method, ctx.id, data, null, doc_uri);
+        }
+    }
+
     void full (Server server, Jsonrpc.Client client, string method,
-               Variant id, Variant @params) {
+                Variant id, Variant @params) {
         var p = Util.parse_variant<SemanticTokensParams> (@params);
         debug ("[SEMTOK] full request: %s",
                Util.project_uri (p.textDocument.uri));
@@ -132,11 +187,12 @@ namespace Vls.SemanticTokensHandler {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-            var tokens = compilation.get_analysis_for_file<SemanticTokensAnalyzer> (doc);
-            var data = Util.delta_encode (tokens.get_tokens ());
-            reply_with_tokens (server, client, method, id, data, null, p.textDocument.uri);
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensFullHandler (ctx, p.textDocument.uri);
+                handler.run ();
+            });
         });
     }
 
@@ -161,11 +217,12 @@ namespace Vls.SemanticTokensHandler {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-            var tokens = compilation.get_analysis_for_file<SemanticTokensAnalyzer> (doc);
-            var data = Util.delta_encode (tokens.get_tokens ());
-            reply_with_tokens (server, client, method, id, data, p.previousResultId, p.textDocument.uri);
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensDeltaHandler (ctx, p.textDocument.uri, p.previousResultId);
+                handler.run ();
+            });
         });
     }
 
@@ -190,11 +247,12 @@ namespace Vls.SemanticTokensHandler {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-            var tokens = compilation.get_analysis_for_file<SemanticTokensAnalyzer> (doc);
-            var data = filter_to_range (tokens.get_tokens (), p.range);
-            reply_with_tokens (server, client, method, id, data, null, p.textDocument.uri);
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) doc, compilation, project);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensRangeHandler (ctx, p.textDocument.uri, p.range);
+                handler.run ();
+            });
         });
     }
 }

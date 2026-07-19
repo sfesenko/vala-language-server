@@ -22,18 +22,18 @@ using Vala;
 using Lsp;
 
 namespace Vls.Workspace {
-    void search_workspace_symbols (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var query = (string) @params.lookup_value ("query", VariantType.STRING);
+    class WorkspaceSymbolHandler : Server.RequestHandler {
+        private string query;
 
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
+        public WorkspaceSymbolHandler (Server.RequestContext ctx, string query) {
+            base (ctx);
+            this.query = query;
+        }
 
+        public override void run () {
             var json_array = new Json.Array ();
-            Project[] all_projects = server.projects.get_keys_as_array ();
-            all_projects += server.default_project;
+            Project[] all_projects = ctx.server.projects.get_keys_as_array ();
+            all_projects += ctx.server.default_project;
             foreach (var project in all_projects) {
                 project.for_each_project_source_file ((text_document, compilation) => {
                     Vala.CodeContext.push (compilation.code_context);
@@ -51,13 +51,24 @@ namespace Vls.Workspace {
                 });
             }
 
-            debug (@"[$method] found $(json_array.get_length ()) element(s) matching `$query'");
-            try {
-                Variant variant_array = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (json_array), null);
-                client.reply (id, variant_array, Server.cancellable);
-            } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
+            debug (@"[%s] found $(json_array.get_length ()) element(s) matching `$query'", ctx.method);
+            reply_json_array (json_array);
+        }
+    }
+
+    void search_workspace_symbols (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var query = (string) @params.lookup_value ("query", VariantType.STRING);
+
+        server.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                Server.reply_null (id, client, method);
+                return;
             }
+
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 null, null, null);
+            var handler = new WorkspaceSymbolHandler (ctx, query);
+            handler.run ();
         });
     }
 }
