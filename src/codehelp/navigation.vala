@@ -24,6 +24,32 @@ using Gee;
 using Lsp;
 
 namespace Vls.Navigation {
+    /**
+     * textDocument/definition handler, piloted through the RequestHandler
+     * framework. Reuses {@link Server.resolve_symbol_at} for the unwrap logic
+     * that used to be hand-rolled here.
+     */
+    class DefinitionHandler : Server.RequestHandler {
+        public DefinitionHandler (Server.RequestContext ctx) {
+            base (ctx);
+        }
+
+        public override void run () {
+            Lsp.Range? range;
+            var node = Server.resolve_symbol_at (ctx, out range);
+            if (node == null || range == null) {
+                reply_null ();
+                return;
+            }
+            var location = new Location (node.source_reference.file.filename, range);
+            try {
+                ctx.client.reply (ctx.id, Util.object_to_variant (location), Server.cancellable);
+            } catch (Error e) {
+                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+            }
+        }
+    }
+
     void goto_definition (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
 
@@ -42,69 +68,12 @@ namespace Vls.Navigation {
                 return;
             }
 
-            Vala.CodeContext.push (compilation.code_context);
-            var resolved = Server.resolve_best_node (file, p.position);
-
-            if (resolved == null) {
-                debug ("[%s] find symbol is empty", method);
-                try {
-                    client.reply (id, new Variant.maybe (VariantType.VARIANT, null), Server.cancellable);
-                } catch (Error e) {
-                    debug("[textDocument/definition] failed to reply to client: %s", e.message);
-                }
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            var best = (!) resolved;
-
-            if (best is Vala.Expression && !(best is Vala.Literal)) {
-                var b = (Vala.Expression)best;
-                debug ("best (%p) is a Expression (symbol_reference = %p)", best, b.symbol_reference);
-                if (b.symbol_reference != null && b.symbol_reference.source_reference != null) {
-                    best = b.symbol_reference;
-                    debug ("best is now the symbol_referenece => %p (%s)", best, best.to_string ());
-                }
-            } else if (best is Vala.DataType) {
-                best = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) best);
-            } else if (best is Vala.UsingDirective) {
-                best = ((Vala.UsingDirective)best).namespace_symbol;
-            } else if (best is Vala.Method) {
-                var m = (Vala.Method)best;
-
-                if (m.base_interface_method != m && m.base_interface_method != null)
-                    best = m.base_interface_method;
-                else if (m.base_method != m && m.base_method != null)
-                    best = m.base_method;
-            } else if (best is Vala.Property) {
-                var prop = (Vala.Property)best;
-
-                if (prop.base_interface_property != prop && prop.base_interface_property != null)
-                    best = prop.base_interface_property;
-                else if (prop.base_property != prop && prop.base_property != null)
-                    best = prop.base_property;
-            } else {
-                debug ("[%s] best is %s, which we can't handle", method, best != null ? best.type_name : null);
-                try {
-                    client.reply (id, new Variant.maybe (VariantType.VARIANT, null), Server.cancellable);
-                } catch (Error e) {
-                    debug("[textDocument/definition] failed to reply to client: %s", e.message);
-                }
-                Vala.CodeContext.pop ();
-                return;
-            }
-
-            if (best is Vala.Symbol)
-                best = SymbolReferences.find_real_symbol (project, (Vala.Symbol) best);
-
-            var location = new Location.from_sourceref (best.source_reference);
-            debug ("[textDocument/definition] found location ... %s", Util.project_uri (location.uri));
-            try {
-                client.reply (id, Util.object_to_variant (location), Server.cancellable);
-            } catch (Error e) {
-                debug("[textDocument/definition] failed to reply to client: %s", e.message);
-            }
-            Vala.CodeContext.pop ();
+            var ctx = new Server.RequestContext (server, client, id, method,
+                                                 (!) file, compilation, project, p.position);
+            Server.with_code_context (compilation.code_context, () => {
+                var handler = new DefinitionHandler (ctx);
+                handler.run ();
+            });
         });
     }
 

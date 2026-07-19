@@ -1182,6 +1182,62 @@ class Vls.Server : Jsonrpc.Server {
         return node;
     }
 
+    /**
+     * Resolve the code node at {@link RequestContext.pos} to the symbol it
+     * defines, following the same unwrap rules that the navigation handlers
+     * used to hand-roll. Unifies `resolve_best_node` with the
+     * expression/data-type/using-directive unwrap and the Method/Property
+     * base-override + `find_real_symbol` resolution into one tested entry
+     * point.
+     *
+     * Returns the resolved node (or null) and, when a source reference is
+     * available, the {@link Lsp.Range} of its definition. Callers turn the
+     * range + node file into a `Location`.
+     */
+    public static Vala.CodeNode? resolve_symbol_at (RequestContext ctx, out Lsp.Range? range) {
+        range = null;
+        var resolved = resolve_best_node (ctx.file, (!) ctx.pos);
+        if (resolved == null)
+            return null;
+
+        var best = (!) resolved;
+
+        if (best is Vala.Expression && !(best is Vala.Literal)) {
+            var b = (Vala.Expression) best;
+            if (b.symbol_reference != null && b.symbol_reference.source_reference != null)
+                best = b.symbol_reference;
+        } else if (best is Vala.DataType) {
+            best = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) best);
+        } else if (best is Vala.UsingDirective) {
+            best = ((Vala.UsingDirective) best).namespace_symbol;
+        } else if (best is Vala.Method) {
+            var m = (Vala.Method) best;
+            if (m.base_interface_method != m && m.base_interface_method != null)
+                best = m.base_interface_method;
+            else if (m.base_method != m && m.base_method != null)
+                best = m.base_method;
+        } else if (best is Vala.Property) {
+            var prop = (Vala.Property) best;
+            if (prop.base_interface_property != prop && prop.base_interface_property != null)
+                best = prop.base_interface_property;
+            else if (prop.base_property != prop && prop.base_property != null)
+                best = prop.base_property;
+        }
+
+        // Only symbol nodes are valid definition targets. Anything else
+        // (literals, statements, blocks, ...) is not something we can jump
+        // to, so we match the old handler's behavior of replying null.
+        if (!(best is Vala.Symbol))
+            return null;
+
+        best = SymbolReferences.find_real_symbol (ctx.project, (Vala.Symbol) best);
+
+        if (best.source_reference == null)
+            return best;
+        range = new Lsp.Range.from_sourceref (best.source_reference);
+        return best;
+    }
+
 
     public DocComment? get_symbol_documentation (Project project, Vala.Symbol sym) {
         Compilation compilation = null;

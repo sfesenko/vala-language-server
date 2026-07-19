@@ -95,6 +95,7 @@ integration_tests = [
   '/int/implementation',
   '/int/log_uses_project_path',
   '/int/golden/document_symbol',
+  '/int/golden/goto_definition',
   '/int/regression/adversarial_smoke_template_string',
   '/int/regression/adversarial_smoke_single_dollar',
   '/int/regression/adversarial_smoke_inverted_ref',

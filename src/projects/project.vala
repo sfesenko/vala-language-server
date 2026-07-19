@@ -401,6 +401,24 @@ abstract class Vls.Project : Object {
         return results;
     }
 
+    /**
+     * Callback shape for {@link for_each_project_source_file}: receives a
+     * project source file together with the compilation that owns it.
+     */
+    public delegate void ProjectSourceFileCallback (Vala.SourceFile file, Compilation compilation);
+
+    /**
+     * Iterate every project source file (i.e. not generated VAPI/PACKAGE
+     * files) together with the compilation that owns it. The project-vs
+     * -package filtering already lives in {@link get_project_source_files};
+     * this helper just unpacks each entry into `(file, compilation)` so
+     * callers avoid re-walking `code_context.get_source_files ()` by hand.
+     */
+    public void for_each_project_source_file (owned ProjectSourceFileCallback cb) {
+        foreach (var entry in get_project_source_files ())
+            cb (entry.key, entry.value);
+    }
+
     public ArrayList<Compilation> get_compilations () {
         var results = new ArrayList<Compilation> ();
         foreach (var btarget in build_targets)

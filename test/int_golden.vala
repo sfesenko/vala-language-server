@@ -50,3 +50,16 @@ void test_golden_document_symbol () {
     Helpers.assert_json_equals (res, path);
     teardown_session (s);
 }
+
+void test_golden_goto_definition () {
+    var s = setup_session (SYMBOL_FIXTURE);
+    var h = new Helpers ();
+    Variant? res = Helpers.sync_call (s.client, "textDocument/definition", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri)),
+        position: h.build_dict (line: new Variant.int32 (1), character: new Variant.int32 (17))
+    ));
+    assert (res != null);
+    var path = GLib.Path.build_filename (golden_dir (), "goto_definition", "expected.json");
+    Helpers.assert_json_equals (res, path);
+    teardown_session (s);
+}

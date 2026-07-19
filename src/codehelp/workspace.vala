@@ -35,9 +35,7 @@ namespace Vls.Workspace {
             Project[] all_projects = server.projects.get_keys_as_array ();
             all_projects += server.default_project;
             foreach (var project in all_projects) {
-                foreach (var source_pair in project.get_project_source_files ()) {
-                    var text_document = source_pair.key;
-                    var compilation = source_pair.value;
+                project.for_each_project_source_file ((text_document, compilation) => {
                     Vala.CodeContext.push (compilation.code_context);
                     var symbol_enumerator = compilation.get_analysis_for_file<SymbolEnumerator> (text_document);
                     if (symbol_enumerator != null) {
@@ -50,7 +48,7 @@ namespace Vls.Workspace {
                             });
                     }
                     Vala.CodeContext.pop ();
-                }
+                });
             }
 
             debug (@"[$method] found $(json_array.get_length ()) element(s) matching `$query'");
