@@ -42,27 +42,42 @@ namespace Vls {
         }
 
         // Template literals captured before check() rewrote them, used to emit
-        // STRING tokens for literal segments and to suppress the synthetic
-        // to_string()/concat() member tokens of the replacement chain.
+        // STRING tokens for literal segments and to tokenize the original
+        // interpolated expressions (the compiler rewrites them into
+        // to_string()/concat() chains whose source refs overlap the
+        // original interpolation byte spans).
         private Gee.List<TemplateSpan>? captured_templates;
-        private HashSet<Vala.SourceReference> captured_srs = new HashSet<Vala.SourceReference> ();
+
+        // Interpolation byte spans of this file, produced by the
+        // context-independent TemplateScanner. Used for range-based
+        // suppression: any rewritten member access whose source ref
+        // overlaps an interpolation span is skipped. This is robust
+        // against Vala's rewrite (no name coupling).
+        private Gee.List<Vls.Foundation.InterpolationSpan?> interpolation_spans =
+            new Gee.ArrayList<Vls.Foundation.InterpolationSpan?> ();
 
         public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
             this.file = file;
             this.captured_templates = template_spans;
-            if (template_spans != null) {
-                foreach (var ts in template_spans) {
-                    if (ts.template.file == file)
-                        captured_srs.add (ts.template);
-                    foreach (var expr in ts.expressions) {
-                        var esr = expr.source_reference;
-                        if (esr != null && esr.file == file)
-                            captured_srs.add (esr);
-                    }
+
+            // Scan the source buffer for template interpolations. The
+            // scanner offsets must live in the SAME buffer the captured
+            // source references are addressed against (file.content here,
+            // matching emit_captured_template_tokens) so range overlap
+            // is compared directly with no position conversion.
+            var buf = file.content;
+            if (buf != null) {
+                foreach (var tmpl in Vls.Foundation.scan_templates (buf)) {
+                    if (tmpl.start < 0 || tmpl.end > buf.length)
+                        continue;
+                    foreach (var interp in tmpl.interpolations)
+                        if (interp.start >= 0 && interp.end <= buf.length)
+                            interpolation_spans.add (interp);
                 }
             }
-            debug ("[SEMTOK] analyzer created, file=%s, content_len=%d",
-                   file.filename, file.content != null ? file.content.length : 0);
+
+            debug ("[SEMTOK] analyzer created, file=%s, content_len=%d, interp_spans=%d",
+                   file.filename, buf != null ? buf.length : 0, interpolation_spans.size);
             this.visit_source_file (file);
         }
 
@@ -220,6 +235,24 @@ namespace Vls {
                     break;
                 try_emit_token (base_line, base_col + word_start, pos - word_start, SemanticTokenType.KEYWORD, 0);
             }
+        }
+
+        // Returns `true` if @a sr's byte span overlaps any scanned
+        // interpolation span of this file.  Used to suppress the
+        // synthetic to_string()/concat() member accesses that Vala
+        // inserts when rewriting template literals.
+        private bool overlaps_interpolation (Vala.SourceReference sr) {
+            var buf = file.content;
+            if (buf == null || sr.file != file)
+                return false;
+            long sb = (long) Util.get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+            long se = (long) Util.get_string_pos (buf, (uint) (sr.end.line - 1), (uint) sr.end.column);
+            foreach (var span in interpolation_spans) {
+                // half-open overlap test
+                if (sb < span.end && se > span.start)
+                    return true;
+            }
+            return false;
         }
 
         public override void visit_source_file (Vala.SourceFile source_file) {
@@ -441,12 +474,15 @@ namespace Vls {
                 // Use sr.end to find the member name position, since sr.begin may
                 // point to a different line (multi-line chains like obj\n  .method).
                 var sr = expr.source_reference;
-                // Skip the synthetic to_string()/concat() member accesses that the
-                // compiler inserts when rewriting template literals; their source
-                // reference coincides with a captured interpolation/template span.
-                bool suppress = (member_name == "to_string" || member_name == "concat")
-                                && sr != null && captured_srs.contains (sr);
-                if (!suppress && sr != null && sr.file == file) {
+                // Skip the synthetic to_string()/concat() member accesses
+                // that the compiler inserts when rewriting template literals.
+                // Suppression uses the rewrite method names combined with
+                // range overlap (double-guarded), so user-written qualified
+                // accesses such as $(obj.field) still survive while the
+                // compiler-generated .to_string()/.concat() chains are dropped.
+                bool synthetic = (member_name == "to_string" || member_name == "concat")
+                                 && sr != null && sr.file == file && overlaps_interpolation (sr);
+                if (!synthetic) {
                     var sym = expr.symbol_reference;
                     uint tok_type = Util.sym_token_type (sym);
                     if (tok_type < 255) {
@@ -760,6 +796,9 @@ namespace Vls {
         private void emit_captured_template_tokens () {
             if (captured_templates == null)
                 return;
+            // Use file.content so the byte offsets agree with the
+            // scanner spans and the captured source references
+            // (which are addressed against file.content here).
             var content = file.content;
             if (content == null)
                 return;

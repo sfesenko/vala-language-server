@@ -90,26 +90,10 @@ namespace Vls.SemanticTokensHandler {
             var old = previous_results[previous_result_id];
             debug ("[SEMTOK] delta: old_size=%d, new_size=%d", old.data.size, data.size);
             string result_id = store_result (doc_uri, data);
-
-            var edits_builder = new VariantBuilder (new VariantType ("aa{sv}"));
-            var edit_builder = new VariantBuilder (new VariantType ("a{sv}"));
-            edit_builder.add ("{sv}", "start", new Variant.int32 (0));
-            edit_builder.add ("{sv}", "deleteCount", new Variant.int32 ((int) old.data.size));
-            var data_builder = new VariantBuilder (new VariantType ("au"));
-            foreach (var val in data)
-                data_builder.add ("u", val);
-            edit_builder.add ("{sv}", "data", data_builder.end ());
-            // add_value (not add ("a{sv}", ...)) — adding a pre-built child
-            // variant to a builder requires add_value, otherwise the builder
-            // is left in an inconsistent state and end() aborts the process.
-            edits_builder.add_value (edit_builder.end ());
-
-            var result_dict = new VariantBuilder (new VariantType ("a{sv}"));
-            result_dict.add ("{sv}", "resultId", new Variant.string (result_id));
-            result_dict.add ("{sv}", "edits", edits_builder.end ());
-
+            var result = Vls.Foundation.SemanticTokensResponseBuilder.build_delta (
+                result_id, old.data, data);
             try {
-                client.reply (id, result_dict.end (), Server.cancellable);
+                client.reply (id, result, Server.cancellable);
             } catch (Error e) {
                 debug (@"[$method] failed to reply to client: $(e.message)");
             }
@@ -118,17 +102,10 @@ namespace Vls.SemanticTokensHandler {
 
         // Full response
         debug ("[SEMTOK] full response: data_size=%d", data.size);
-        var data_builder = new VariantBuilder (new VariantType ("au"));
-        foreach (var val in data)
-            data_builder.add ("u", val);
-
-        var result_dict = new VariantBuilder (new VariantType ("a{sv}"));
         string result_id = doc_uri != null ? store_result (doc_uri, data) : "0";
-        result_dict.add ("{sv}", "resultId", new Variant.string (result_id));
-        result_dict.add ("{sv}", "data", data_builder.end ());
-
+        var result = Vls.Foundation.SemanticTokensResponseBuilder.build_full (result_id, data);
         try {
-            client.reply (id, result_dict.end (), Server.cancellable);
+            client.reply (id, result, Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }

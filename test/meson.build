@@ -13,7 +13,7 @@ unit_src = files([
 
 unit_exe = executable('vls-unit-test',
   dependencies: deps,
-  sources: [unit_src, extra_vala_sources],
+  sources: [unit_src, extra_vala_sources, foundation_vala_sources],
   install: false)
 
 integration_src = files([
@@ -51,6 +51,20 @@ unit_tests = [
   '/vls/util/delta_encode',
   '/vls/util/project_path',
   '/vls/util/project_uri',
+  '/vls/foundation/scan_templates/empty',
+  '/vls/foundation/scan_templates/no_templates',
+  '/vls/foundation/scan_templates/simple',
+  '/vls/foundation/scan_templates/single_interpolation',
+  '/vls/foundation/scan_templates/shorthand_interpolation',
+  '/vls/foundation/scan_templates/multiple_interpolations',
+  '/vls/foundation/scan_templates/escaped_quote',
+  '/vls/foundation/scan_templates/empty_template',
+  '/vls/foundation/scan_templates/interpolation_only',
+  '/vls/foundation/scan_templates/nested_parens',
+  '/vls/foundation/scan_templates/multiple_templates',
+  '/vls/foundation/response_builder/full',
+  '/vls/foundation/response_builder/delta',
+  '/vls/foundation/response_builder/delta_crash_regression',
 ]
 
 foreach t : unit_tests

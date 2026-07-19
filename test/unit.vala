@@ -19,6 +19,7 @@
  */
 
 using Vls.Util;
+using Gee;
 using Json;
 
 class TestSerializable : GLib.Object, Serializable {
@@ -212,6 +213,163 @@ void test_project_uri () {
     assert (project_uri (encoded) == "$PROJECT/src/file name.vala");
 }
 
+void test_scan_templates_empty () {
+    var result = Vls.Foundation.scan_templates ("");
+    assert (result.size == 0);
+}
+
+void test_scan_templates_no_templates () {
+    var result = Vls.Foundation.scan_templates ("int x = 5;");
+    assert (result.size == 0);
+}
+
+void test_scan_templates_simple () {
+    var result = Vls.Foundation.scan_templates ("@\"hello\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.start == 0);
+    assert (t.end == 8); // @"hello" = 8 bytes
+    assert (t.interpolations.size == 0);
+}
+
+void test_scan_templates_single_interpolation () {
+    var result = Vls.Foundation.scan_templates ("@\"hello $(name)\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.start == 0);
+    assert (t.end == 16); // @"hello $(name)" = 16 bytes
+    assert (t.interpolations.size == 1);
+    assert (t.interpolations[0].start == 8);  // $( starts at 8
+    assert (t.interpolations[0].end == 15);   // ) at 14, so end=15
+}
+
+void test_scan_templates_shorthand_interpolation () {
+    var result = Vls.Foundation.scan_templates ("@\"$name\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.interpolations.size == 1);
+    assert (t.interpolations[0].start == 2);  // $ starts at 2
+    assert (t.interpolations[0].end == 7);    // name = 4 chars, so end=7
+}
+
+void test_scan_templates_multiple_interpolations () {
+    var result = Vls.Foundation.scan_templates ("@\"$(a) and $(b)\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.interpolations.size == 2);
+    assert (t.interpolations[0].start == 2);
+    assert (t.interpolations[0].end == 6);
+    assert (t.interpolations[1].start == 11);
+    assert (t.interpolations[1].end == 15);
+}
+
+void test_scan_templates_escaped_quote () {
+    var result = Vls.Foundation.scan_templates ("@\"hello \\\" world\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.interpolations.size == 0);
+}
+
+void test_scan_templates_empty_template () {
+    var result = Vls.Foundation.scan_templates ("@\"\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.start == 0);
+    assert (t.end == 3);
+    assert (t.interpolations.size == 0);
+}
+
+void test_scan_templates_interpolation_only () {
+    var result = Vls.Foundation.scan_templates ("@\"$(x)\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.interpolations.size == 1);
+    assert (t.interpolations[0].start == 2);
+    assert (t.interpolations[0].end == 6);
+}
+
+void test_scan_templates_nested_parens () {
+    var result = Vls.Foundation.scan_templates ("@\"$(foo(1))\"");
+    assert (result.size == 1);
+    var t = result[0];
+    assert (t.interpolations.size == 1);
+    assert (t.interpolations[0].start == 2);
+    assert (t.interpolations[0].end == 11); // $(foo(1)) = 11 bytes from $
+}
+
+void test_scan_templates_multiple_templates () {
+    var result = Vls.Foundation.scan_templates ("@\"a\" + @\"$(b)\"");
+    assert (result.size == 2);
+    assert (result[0].start == 0);
+    assert (result[0].end == 4);  // @"a" = 4 bytes
+    assert (result[0].interpolations.size == 0);
+    assert (result[1].start == 7);
+    assert (result[1].end == 14); // @"$(b)" = 7 bytes (7..14)
+    assert (result[1].interpolations.size == 1);
+}
+
+void test_response_builder_full () {
+    var data = new ArrayList<uint> ();
+    data.add (10);
+    data.add (20);
+    data.add (30);
+    var result = Vls.Foundation.SemanticTokensResponseBuilder.build_full ("abc", data);
+    assert (result != null);
+    assert (result.get_type ().equal (new VariantType ("a{sv}")));
+    // Verify resultId
+    var resultId = result.lookup_value ("resultId", null);
+    assert (resultId != null);
+    assert (resultId.get_string () == "abc");
+    // Verify data is present
+    var data_var = result.lookup_value ("data", null);
+    assert (data_var != null);
+}
+
+void test_response_builder_delta () {
+    var old_data = new ArrayList<uint> ();
+    old_data.add (1);
+    old_data.add (2);
+    old_data.add (3);
+    old_data.add (4);
+    var new_data = new ArrayList<uint> ();
+    new_data.add (10);
+    new_data.add (20);
+    var result = Vls.Foundation.SemanticTokensResponseBuilder.build_delta ("def", old_data, new_data);
+    assert (result != null);
+    assert (result.get_type ().equal (new VariantType ("a{sv}")));
+    // Verify resultId
+    var resultId = result.lookup_value ("resultId", null);
+    assert (resultId != null);
+    assert (resultId.get_string () == "def");
+    // Verify edits is present and well-formed
+    var edits = result.lookup_value ("edits", null);
+    assert (edits != null);
+    assert (edits.get_type ().equal (new VariantType ("aa{sv}")));
+}
+
+void test_response_builder_delta_crash_regression () {
+    // Reproduce the delta crash: building a delta response must not abort.
+    // The bug was using add("a{sv}", ...) instead of add_value() for the
+    // child edit variant, which leaves the builder in an inconsistent state.
+    var old_data = new ArrayList<uint> ();
+    old_data.add (100);
+    old_data.add (200);
+    var new_data = new ArrayList<uint> ();
+    new_data.add (50);
+    new_data.add (60);
+    new_data.add (70);
+    // This must not crash — the old code would abort here.
+    var result = Vls.Foundation.SemanticTokensResponseBuilder.build_delta ("crash-test", old_data, new_data);
+    assert (result != null);
+    // Verify deleteCount equals old_data.size
+    var edits = result.lookup_value ("edits", null);
+    assert (edits != null);
+    var edit0 = edits.get_child_value (0);
+    var deleteCount = edit0.lookup_value ("deleteCount", null);
+    assert (deleteCount != null);
+    assert (deleteCount.get_int32 () == 2);
+}
+
 int main (string[] args) {
     Test.init (ref args);
     Test.add_func ("/vls/util/compare_versions", test_compare_versions);
@@ -227,6 +385,20 @@ int main (string[] args) {
     Test.add_func ("/vls/util/delta_encode", test_delta_encode);
     Test.add_func ("/vls/util/project_path", test_project_path);
     Test.add_func ("/vls/util/project_uri", test_project_uri);
+    Test.add_func ("/vls/foundation/scan_templates/empty", test_scan_templates_empty);
+    Test.add_func ("/vls/foundation/scan_templates/no_templates", test_scan_templates_no_templates);
+    Test.add_func ("/vls/foundation/scan_templates/simple", test_scan_templates_simple);
+    Test.add_func ("/vls/foundation/scan_templates/single_interpolation", test_scan_templates_single_interpolation);
+    Test.add_func ("/vls/foundation/scan_templates/shorthand_interpolation", test_scan_templates_shorthand_interpolation);
+    Test.add_func ("/vls/foundation/scan_templates/multiple_interpolations", test_scan_templates_multiple_interpolations);
+    Test.add_func ("/vls/foundation/scan_templates/escaped_quote", test_scan_templates_escaped_quote);
+    Test.add_func ("/vls/foundation/scan_templates/empty_template", test_scan_templates_empty_template);
+    Test.add_func ("/vls/foundation/scan_templates/interpolation_only", test_scan_templates_interpolation_only);
+    Test.add_func ("/vls/foundation/scan_templates/nested_parens", test_scan_templates_nested_parens);
+    Test.add_func ("/vls/foundation/scan_templates/multiple_templates", test_scan_templates_multiple_templates);
+    Test.add_func ("/vls/foundation/response_builder/full", test_response_builder_full);
+    Test.add_func ("/vls/foundation/response_builder/delta", test_response_builder_delta);
+    Test.add_func ("/vls/foundation/response_builder/delta_crash_regression", test_response_builder_delta_crash_regression);
     Vls.Util.set_project_root (Environment.get_current_dir ());
     return Test.run ();
 }

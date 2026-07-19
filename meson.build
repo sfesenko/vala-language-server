@@ -75,6 +75,8 @@ extra_vala_sources += files([
 foundation_vala_sources = files([
   'src/foundation/positions.vala',
   'src/projects/textdocument.vala',
+  'src/analysis/templatescanner.vala',
+  'src/analysis/semantictokensresponsebuilder.vala',
 ])
 
 if host_machine.system() == 'windows'
