@@ -89,6 +89,13 @@ class Vls.Compilation : BuildTarget {
     private bool _completed_first_compile;
 
     /**
+     * Whether packages have been loaded into the code context.
+     * After the first successful compile, we reuse the same context
+     * and skip re-adding packages on subsequent recompiles.
+     */
+    private bool _packages_loaded;
+
+    /**
      * The reporter for the code context
      */
     public Reporter reporter {
@@ -253,9 +260,13 @@ class Vls.Compilation : BuildTarget {
         }
     }
 
-    private void configure (Cancellable? cancellable = null) throws Error {
-        // 1. recreate code context
-        code_context = new Vala.CodeContext () {
+    /**
+     * Create and configure a fresh {@link Vala.CodeContext} with this
+     * compilation's settings. Shared by the main-thread configure path
+     * and the worker-thread compile path to avoid duplication.
+     */
+    private Vala.CodeContext create_code_context () {
+        var ctx = new Vala.CodeContext () {
             deprecated = _deprecated,
             experimental = _experimental,
             experimental_non_null = _experimental_non_null,
@@ -265,36 +276,77 @@ class Vls.Compilation : BuildTarget {
             gir_directories = _gir_dirs.to_array (),
             metadata_directories = _metadata_dirs.to_array (),
             keep_going = true,
-            // report = new Reporter (_fatal_warnings),
             entry_point_name = _entry_point_name,
             gresources_directories = _gresources_dirs.to_array ()
         };
 
 #if VALA_0_50
-        code_context.set_target_profile (_profile, false);
+        ctx.set_target_profile (_profile, false);
 #else
-        code_context.profile = _profile;
+        ctx.profile = _profile;
         switch (_profile) {
             case Vala.Profile.POSIX:
-                code_context.add_define ("POSIX");
+                ctx.add_define ("POSIX");
                 break;
             case Vala.Profile.GOBJECT:
-                code_context.add_define ("GOBJECT");
+                ctx.add_define ("GOBJECT");
                 break;
         }
 #endif
 
-        // Vala compiler bug requires us to initialize things this way instead of
-        // the alternative above
-        code_context.report = new Reporter (_fatal_warnings);
-
-        // set target GLib version if specified
+        ctx.report = new Reporter (_fatal_warnings);
         if (_target_glib != null)
-            code_context.set_target_glib_version (_target_glib);
-        Vala.CodeContext.push (code_context);
+            ctx.set_target_glib_version (_target_glib);
 
         foreach (string define in _defines)
-            code_context.add_define (define);
+            ctx.add_define (define);
+
+        return ctx;
+    }
+
+    /**
+     * Add the profile-specific default using directive to a source file
+     * and (if {@code also_to_root} is true) to the context root.
+     */
+    private void add_profile_using_directive (Vala.CodeContext ctx, Vala.SourceFile doc, bool also_to_root) {
+        if (_profile == Vala.Profile.POSIX) {
+            var ns_ref = new Vala.UsingDirective (new Vala.UnresolvedSymbol (null, "Posix", null));
+            doc.add_using_directive (ns_ref);
+            if (also_to_root)
+                ctx.root.add_using_directive (ns_ref);
+        } else if (_profile == Vala.Profile.GOBJECT) {
+            var ns_ref = new Vala.UsingDirective (new Vala.UnresolvedSymbol (null, "GLib", null));
+            doc.add_using_directive (ns_ref);
+            if (also_to_root)
+                ctx.root.add_using_directive (ns_ref);
+        }
+    }
+
+    private void configure (Cancellable? cancellable = null, bool create_new_context = false) throws Error {
+        // After the first compile, reuse the existing code_context
+        // (which already has packages loaded) and just update source file
+        // content. This avoids the 40-55% compile-time cost of re-adding
+        // all packages via add_external_package.
+        // Skip reuse when create_new_context is set (worker thread path).
+        if (_packages_loaded && !create_new_context) {
+            Vala.CodeContext.push (code_context);
+            foreach (TextDocument doc in _project_sources.values) {
+                doc.context = code_context;
+                doc.get_comments ().clear ();
+                doc.get_nodes ().clear ();
+                doc.current_using_directives.clear ();
+                // Root already has the using directive from the first compile;
+                // only add to the document to avoid accumulation on root.
+                add_profile_using_directive (code_context, doc, false);
+                cancellable.set_error_if_cancelled ();
+            }
+            Vala.CodeContext.pop ();
+            return;
+        }
+
+        // Recreate code context
+        code_context = create_code_context ();
+        Vala.CodeContext.push (code_context);
 
         if (_project_sources.is_empty) {
             debug ("Compilation(%s): will load input sources for the first time", id);
@@ -319,27 +371,10 @@ class Vls.Compilation : BuildTarget {
         foreach (TextDocument doc in _project_sources.values) {
             doc.context = code_context;
             code_context.add_source_file (doc);
-            // clear all using directives (to avoid "T ambiguous with T" errors)
             doc.current_using_directives.clear ();
-            // add default using directives for the profile
-            if (_profile == Vala.Profile.POSIX) {
-                // import the Posix namespace by default (namespace of backend-specific standard library)
-                var ns_ref = new Vala.UsingDirective (new Vala.UnresolvedSymbol (null, "Posix", null));
-                doc.add_using_directive (ns_ref);
-                code_context.root.add_using_directive (ns_ref);
-            } else if (_profile == Vala.Profile.GOBJECT) {
-                // import the GLib namespace by default (namespace of backend-specific standard library)
-                var ns_ref = new Vala.UsingDirective (new Vala.UnresolvedSymbol (null, "GLib", null));
-                doc.add_using_directive (ns_ref);
-                code_context.root.add_using_directive (ns_ref);
-            }
-
-            // clear all comments from file
+            add_profile_using_directive (code_context, doc, true);
             doc.get_comments ().clear ();
-
-            // clear all code nodes from file
             doc.get_nodes ().clear ();
-
             cancellable.set_error_if_cancelled ();
         }
 
@@ -433,8 +468,32 @@ class Vls.Compilation : BuildTarget {
 
         last_updated = new DateTime.now ();
         _completed_first_compile = true;
+        _packages_loaded = true;
         Vala.CodeContext.pop ();
         debug ("finished compiling %s", id);
+    }
+
+    /**
+     * Check whether this compilation needs to be recompiled.
+     * Does NOT trigger any compilation — just checks staleness.
+     */
+    public bool is_stale () {
+        if (!_completed_first_compile)
+            return true;
+
+        foreach (Map.Entry<File, BuildTarget> dep in dependencies) {
+            if (_file_cache[dep.key].last_updated.compare (last_updated) > 0)
+                return true;
+        }
+        foreach (TextDocument doc in _project_sources.values) {
+            if (doc.last_updated.compare (last_updated) > 0) {
+                debug ("[SEMTOK] is_stale: stale due to %s (lu=%s > comp_lu=%s)",
+                       Util.project_path (doc.filename),
+                       doc.last_updated.to_string (), last_updated.to_string ());
+                return true;
+            }
+        }
+        return false;
     }
 
     public override void build_if_stale (Cancellable? cancellable = null) throws Error {
@@ -442,34 +501,23 @@ class Vls.Compilation : BuildTarget {
             // configure for first time
             configure (cancellable);
 
-        bool stale = false;
         bool updated_file = false;
 
         foreach (Map.Entry<File, BuildTarget> dep in dependencies) {
             if (_file_cache[dep.key].last_updated.compare (last_updated) > 0) {
-                stale = true;
+                // stale — will be caught below
                 break;
             } else if (dep.value.last_updated.compare (last_updated) > 0) {
                 // dep was updated but file is the same
                 updated_file = true;
             }
         }
-        foreach (TextDocument doc in _project_sources.values) {
-            if (doc.last_updated.compare (last_updated) > 0) {
-                debug ("[SEMTOK] build_if_stale: stale due to %s (lu=%s > comp_lu=%s)",
-                       Util.project_path (doc.filename),
-                       doc.last_updated.to_string (), last_updated.to_string ());
-                stale = true;
-                break;
-            }
-        }
-        if (stale || !_completed_first_compile) {
-            debug ("[SEMTOK] build_if_stale: recompiling%s%s",
-                   stale ? " (stale)" : "", !_completed_first_compile ? " (first compile)" : "");
+
+        if (is_stale ()) {
+            debug ("[SEMTOK] build_if_stale: recompiling");
             var compile_start = new DateTime.now ();
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
-            // TODO: cancellable compilation
             debug ("[SEMTOK] compile: starting");
             compile ();
             var compile_elapsed = new DateTime.now ().difference (compile_start);
@@ -486,6 +534,129 @@ class Vls.Compilation : BuildTarget {
         // update all output files
         foreach (var file in output)
             _file_cache.update (file, cancellable);
+    }
+
+    /**
+     * Result of an asynchronous compilation, ready to be swapped into
+     * the main-thread Compilation via {@link swap_compile_result}.
+     */
+    public class CompileResult {
+        public Vala.CodeContext code_context;
+        public HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> source_analyzers;
+        public HashSet<Vala.LocalVariable> var_decls;
+        public HashMap<Vala.CodeNode, int> method_calls;
+        public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans;
+        public HashMap<string, Vala.Symbol> cname_to_sym;
+        public DateTime last_updated;
+    }
+
+    /**
+     * Run configure() + compile() on a worker thread with an isolated
+     * CodeContext. Returns a {@link CompileResult} that can be swapped
+     * into the main-thread Compilation on the main loop.
+     *
+     * The worker creates its own CodeContext and TextDocument objects;
+     * the main thread's state is never touched.
+     */
+    public CompileResult compile_on_worker (Cancellable? cancellable = null) throws Error {
+        var result = new CompileResult ();
+        result.source_analyzers = new HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> ();
+        result.var_decls = new HashSet<Vala.LocalVariable> ();
+        result.method_calls = new HashMap<Vala.CodeNode, int> ();
+        result.template_spans = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> ();
+        result.cname_to_sym = new HashMap<string, Vala.Symbol> ();
+
+        // Create isolated context using shared helper
+        var worker_ctx = create_code_context ();
+        result.code_context = worker_ctx;
+        Vala.CodeContext.push (worker_ctx);
+
+        // Create worker-local TextDocuments from the main thread's content
+        var worker_sources = new HashMap<File, TextDocument> (Util.file_hash, Util.file_equal);
+        foreach (var entry in _project_sources) {
+            var doc = new TextDocument (worker_ctx, entry.key, entry.value.content, true);
+            worker_sources[entry.key] = doc;
+            worker_ctx.add_source_file (doc);
+            doc.current_using_directives.clear ();
+            add_profile_using_directive (worker_ctx, doc, true);
+            doc.get_comments ().clear ();
+            doc.get_nodes ().clear ();
+        }
+
+        foreach (string package in _packages)
+            worker_ctx.add_external_package (package);
+
+        // Check cancellation before starting parse — a newer edit may
+        // have arrived, making this compile stale.
+        if (cancellable != null)
+            cancellable.set_error_if_cancelled ();
+
+        // Parse
+        var vala_parser = new Vala.Parser ();
+        var genie_parser = new Vala.Genie.Parser ();
+        var gir_parser = new Vala.GirParser ();
+        vala_parser.parse (worker_ctx);
+        genie_parser.parse (worker_ctx);
+        gir_parser.parse (worker_ctx);
+
+        // AST walks (inlay hints + templates) on worker
+        foreach (var source_file in worker_ctx.get_source_files ())
+            source_file.accept (new InlayHintNodes (result.var_decls, result.method_calls));
+        foreach (var source_file in worker_ctx.get_source_files ())
+            source_file.accept (new TemplateNodes (result.template_spans));
+
+        // Check cancellation before the expensive type-check —
+        // this is the dominant cost and the best place to bail out.
+        if (cancellable != null)
+            cancellable.set_error_if_cancelled ();
+
+        // Type check
+        worker_ctx.check ();
+
+        // C name map
+        foreach (Vala.SourceFile source_file in worker_ctx.get_source_files ()) {
+            if (source_file.file_type == Vala.SourceFileType.PACKAGE)
+                source_file.accept (new CNameMapper (result.cname_to_sym));
+        }
+
+        result.last_updated = new DateTime.now ();
+        Vala.CodeContext.pop ();
+        return result;
+    }
+
+    /**
+     * Swap the result of {@link compile_async} into this Compilation's
+     * state. Called on the main thread after the worker finishes.
+     */
+    public void swap_compile_result (CompileResult result) {
+        // Build a filename→main-thread-SourceFile lookup for remapping
+        var main_files_by_name = new HashMap<string, Vala.SourceFile> ();
+        foreach (var entry in _project_sources)
+            main_files_by_name[entry.value.filename] = entry.value;
+
+        // Remap template_spans keys from worker source files to main-thread files
+        var remapped_spans = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> ();
+        foreach (var entry in result.template_spans) {
+            var main_file = main_files_by_name[entry.key.filename];
+            if (main_file != null)
+                remapped_spans[main_file] = entry.value;
+            else
+                remapped_spans[entry.key] = entry.value;
+        }
+
+        code_context = result.code_context;
+        _source_analyzers = result.source_analyzers;
+        var_decls = result.var_decls;
+        method_calls = result.method_calls;
+        template_spans = remapped_spans;
+        cname_to_sym = result.cname_to_sym;
+        last_updated = result.last_updated;
+        _completed_first_compile = true;
+        _packages_loaded = true;
+
+        // Update TextDocument contexts to point to the new code_context
+        foreach (var entry in _project_sources)
+            entry.value.context = code_context;
     }
 
     /**

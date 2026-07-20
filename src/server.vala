@@ -25,6 +25,7 @@ class Vls.Server : Jsonrpc.Server {
     public static Server instance { get; private set; }
     public Lsp.TraceValue trace { get; set; default = Lsp.TraceValue.VERBOSE; }
     MainLoop loop;
+    Scheduler scheduler;
 
     public InitializeParams init_params;
 
@@ -54,6 +55,19 @@ class Vls.Server : Jsonrpc.Server {
     // Fired centrally by {@link fire_pending_context_updates} when the rebuild
     // finishes, replacing the old 200 ms poll (see perf.md Phase A3).
     HashSet<PendingRequest> pending_requests;
+
+    /**
+     * True while an async compilation is in flight on a worker thread.
+     * Prevents overlapping compilations; cancelled via {@link compile_cancellable}
+     * when a newer edit arrives.
+     */
+    bool compile_in_progress = false;
+
+    /**
+     * Per-compile cancellable. Cancelled when a newer edit arrives
+     * so the in-flight worker discards stale work instead of completing it.
+     */
+    Cancellable? compile_cancellable = null;
 
     bool shutting_down = false;
 
@@ -94,9 +108,10 @@ class Vls.Server : Jsonrpc.Server {
         });
     }
 
-    public Server (MainLoop loop) {
+    public Server (MainLoop loop) throws ThreadError {
         Server.instance = this;
         this.loop = loop;
+        this.scheduler = new Scheduler ();
 
         // hack to prevent other things from corrupting JSON-RPC pipe:
         // create a new handle to stdout, and close the old one (or move it to stderr)
@@ -938,6 +953,10 @@ protected void reply_error (int code, string message) {
         update_context_requests += 1;
         int64 delay_us = int64.min (update_context_delay_inc_us * update_context_requests, update_context_delay_max_us);
         update_context_time_us = get_monotonic_time () + delay_us;
+        // Cancel any in-flight compile — newer edits make it stale.
+        // The worker will check this and discard its result.
+        if (compile_cancellable != null)
+            compile_cancellable.cancel ();
         debug ("[SEMTOK] request_context_update: requests=%d, delay=%dms",
                (int) update_context_requests, (int) (delay_us / 1000));
     }
@@ -955,12 +974,66 @@ protected void reply_error (int code, string message) {
             Project[] all_projects = projects.get_keys_as_array ();
             all_projects += default_project;
             bool reconfigured_projects = false;
+
+            // If a compile is already in flight, skip this cycle —
+            // the in-flight compile will swap and re-trigger via pending_requests.
+            if (compile_in_progress) {
+                debug ("[SEMTOK] check_update_context: compile in progress, deferring");
+                return true;
+            }
+
             foreach (var project in all_projects) {
                 try {
                     bool reconfigured = project.reconfigure_if_stale (cancellable);
                     reconfigured_projects |= reconfigured;
-                    debug ("[SEMTOK] check_update_context: build_if_stale for project");
-                    project.build_if_stale (cancellable);
+
+                    foreach (var compilation in project.get_compilations ()) {
+                        if (compilation.is_stale ()) {
+                            debug ("[SEMTOK] check_update_context: starting async compile for %s", compilation.id);
+                            compile_in_progress = true;
+                            // create a fresh cancellable for this compile.
+                            // request_context_update() cancels it when new edits arrive.
+                            compile_cancellable = new Cancellable ();
+                            // Dispatch the heavy compile to a worker thread via the Scheduler.
+                            // compile_on_worker creates its own isolated CodeContext
+                            // and does not touch the main-thread state until
+                            // swap_compile_result is called.
+                            var compile_canc = compile_cancellable;
+                            scheduler.run_async.begin<Compilation.CompileResult> (() => {
+                                return compilation.compile_on_worker (compile_canc);
+                            }, compile_canc, (obj, res) => {
+                                bool was_cancelled = false;
+                                try {
+                                    var result = scheduler.run_async.end<Compilation.CompileResult> (res);
+                                    // if the cancellable fired, a newer edit arrived
+                                    // while this compile was running — discard the stale result.
+                                    was_cancelled = compile_canc.is_cancelled ();
+                                    if (was_cancelled) {
+                                        debug ("[SEMTOK] async compile cancelled for %s (newer edit arrived)", compilation.id);
+                                    } else {
+                                        compilation.swap_compile_result (result);
+                                        debug ("[SEMTOK] async compile done for %s", compilation.id);
+                                    }
+                                } catch (Error e) {
+                                    was_cancelled = compile_canc.is_cancelled ();
+                                    if (!was_cancelled)
+                                        warning ("Async compile failed: %s", e.message);
+                                } finally {
+                                    compile_in_progress = false;
+                                    compile_cancellable = null;
+                                    // Skip diagnostics/firing when cancelled — the next
+                                    // compile cycle will produce fresh diagnostics.
+                                    if (!was_cancelled) {
+                                        fire_pending_context_updates ();
+                                        foreach (var p in all_projects)
+                                            foreach (var comp in p.get_compilations ())
+                                                publish_diagnostics (p, comp, update_context_client);
+                                    }
+                                }
+                            });
+                            return true; // async — continue later
+                        }
+                    }
 
                     // remove all newly-added files from the default project
                     if (reconfigured && project != default_project) {
@@ -985,11 +1058,6 @@ protected void reply_error (int code, string message) {
                     }
 
                     foreach (var compilation in project.get_compilations ())
-                        /* This must come after the resetting of the two variables above,
-                        * since it's possible for publishDiagnostics to eventually call
-                        * one of our JSON-RPC callbacks through g_main_context_iteration (),
-                        * if we get a new message while sending the textDocument/publishDiagnostics
-                        * notifications. */
                         publish_diagnostics (project, compilation, update_context_client);
                 } catch (Error e) {
                     warning ("Failed to rebuild and/or reconfigure project: %s", e.message);
@@ -1060,10 +1128,23 @@ protected void reply_error (int code, string message) {
      * perf.md Phase A3.) A single idle re-check guards the rare window where
      * a rebuild is already in flight (requests already reset to 0) when this
      * is called.
+     *
+     * If {@code compilation} is provided, the request only waits when that
+     * specific compilation is stale (B4 per-target gating). Requests for
+     * non-stale compilations proceed immediately even if other compilations
+     * have pending edits.
      */
-    public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func) {
-        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d",
-               id.print (false), (int) update_context_requests, pending_requests.size);
+    public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func,
+                                          Compilation? compilation = null) {
+        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s",
+               id.print (false), (int) update_context_requests, pending_requests.size,
+               compilation != null ? compilation.id : "any");
+        // If a specific compilation is known and it's not stale,
+        // proceed immediately — edits in other targets don't block this one.
+        if (compilation != null && !compilation.is_stale ()) {
+            on_context_updated_func (false);
+            return;
+        }
         // we've already updated the context (or none pending)
         if (update_context_requests == 0) {
             on_context_updated_func (false);
@@ -1078,6 +1159,12 @@ protected void reply_error (int code, string message) {
             var pr = find_pending (req);
             if (pr == null) {
                 // already fired or cancelled
+                return Source.REMOVE;
+            }
+            // re-check per-compilation staleness on idle
+            if (compilation != null && !compilation.is_stale ()) {
+                pending_requests.remove (pr);
+                pr.callback (false);
                 return Source.REMOVE;
             }
             if (update_context_requests == 0) {
@@ -1483,7 +1570,7 @@ protected void reply_error (int code, string message) {
                 var handler = new FormatHandler (ctx, p);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     class CodeActionHandler : RequestHandler {
@@ -1531,7 +1618,7 @@ protected void reply_error (int code, string message) {
                 var handler = new CodeActionHandler (ctx, p);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     /**
@@ -1676,7 +1763,11 @@ int main (string[] args) {
     }
 
     var loop = new MainLoop ();
-    new Vls.Server (loop);
+    try {
+        new Vls.Server (loop);
+    } catch (ThreadError e) {
+        error ("Failed to create scheduler: %s", e.message);
+    }
     loop.run ();
     return 0;
 }
