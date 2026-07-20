@@ -114,6 +114,53 @@ void test_range_from_sourceref () {
     assert (rn.end.line == 0 && rn.end.character == 0);
 }
 
+void test_line_index_byte_length_of_line () {
+    // single line, no newline -> full length
+    var one = new Vls.Foundation.LineIndex ("hello");
+    assert (one.byte_length_of_line (0) == 5);
+
+    // empty buffer -> 0
+    var blank = new Vls.Foundation.LineIndex ("");
+    assert (blank.byte_length_of_line (0) == 0);
+    assert (blank.byte_length_of_line (99) == 0);
+
+    // last line has no trailing newline
+    var buf = "line0\nline1\nline2";
+    var idx = new Vls.Foundation.LineIndex (buf);
+    assert (idx.byte_length_of_line (0) == 5);  // "line0"
+    assert (idx.byte_length_of_line (1) == 5);  // "line1"
+    assert (idx.byte_length_of_line (2) == 5);  // "line2" (no '\n')
+    assert (idx.byte_length_of_line (3) == 0);  // past end
+
+    // a blank (just-newline) line counts as 0
+    var nl = new Vls.Foundation.LineIndex ("a\n\nb");
+    assert (nl.byte_length_of_line (1) == 0);
+
+    // matches Vls.Util.line_byte_length on the same buffer
+    for (uint l = 0; l < idx.line_count; l++)
+        assert (idx.byte_length_of_line (l) == Vls.Util.line_byte_length (buf, l));
+}
+
+void test_slice_sourceref_with () {
+    var ctx = new Vala.CodeContext ();
+    var sf = new Vala.SourceFile (ctx, Vala.SourceFileType.SOURCE, "test.vala", "hello\nworld");
+    var idx = new Vls.Foundation.LineIndex (sf.content);
+    // forward ref: line 1 col 1 ("h") to line 1 col 5 ("o") -> "hello"
+    var sr = new Vala.SourceReference (sf, loc ("test.vala", 1, 1), loc ("test.vala", 1, 5));
+    var slice = Vls.Foundation.slice_sourceref_with (sr, idx);
+    assert (slice == "hello");
+
+    // matches the index-less slice_sourceref on the same buffer
+    assert (Vls.Foundation.slice_sourceref (sr) == slice);
+
+    // inverted ref -> null
+    var inv = new Vala.SourceReference (sf, loc ("test.vala", 1, 5), loc ("test.vala", 1, 1));
+    assert (Vls.Foundation.slice_sourceref_with (inv, idx) == null);
+
+    // null index falls back to get_string_pos behavior
+    assert (Vls.Foundation.slice_sourceref_with (sr, null) == "hello");
+}
+
 void test_offset_to_position () {
     var buf = "line0\nline1\nline2";
     // roundtrip with get_string_pos
@@ -173,11 +220,13 @@ void test_line_index () {
     // byte_offset_for_char counts UTF-8 code points
     var uni = "héllo\nwörld";
     var uidx = new Vls.Foundation.LineIndex (uni);
-    // "wörld" starts at offset 6; the 'ö' is 2 bytes; char 3 is past 'ö'
-    assert (uidx.byte_offset_for_char (1, 0) == 6);
-    assert (uidx.byte_offset_for_char (1, 1) == 7);   // 'w'
-    assert (uidx.byte_offset_for_char (1, 2) == 8);   // 'ö' (first byte)
-    assert (uidx.byte_offset_for_char (1, 3) == 10);  // after 'ö' (2-byte)
+    // "héllo\nwörld": line 0 "héllo" is 6 bytes, then '\n' at offset 6, so
+    // line 1 "wörld" starts at offset 7. byte_offset_for_char counts UTF-8
+    // code points within the line.
+    assert (uidx.byte_offset_for_char (1, 0) == 7);   // 'w'
+    assert (uidx.byte_offset_for_char (1, 1) == 8);   // 'ö' (first byte)
+    assert (uidx.byte_offset_for_char (1, 2) == 10);  // after 'ö' (2-byte)
+    assert (uidx.byte_offset_for_char (1, 3) == 11);  // 'r'
 
     // offset_to_position_with uses binary search over line starts
     var p = Vls.Foundation.offset_to_position_with (idx, 0);
@@ -204,5 +253,32 @@ int main (string[] args) {
     Test.add_func ("/int_foundation/range_from_sourceref", test_range_from_sourceref);
     Test.add_func ("/int_foundation/offset_to_position", test_offset_to_position);
     Test.add_func ("/int_foundation/line_index", test_line_index);
+    Test.add_func ("/int_foundation/line_index_byte_length_of_line", test_line_index_byte_length_of_line);
+    Test.add_func ("/int_foundation/slice_sourceref_with", test_slice_sourceref_with);
+    Test.add_func ("/int_foundation/textdocument_byte_offset", test_textdocument_byte_offset);
     return Test.run ();
+}
+
+void test_textdocument_byte_offset () {
+    var ctx = new Vala.CodeContext ();
+    var file = File.new_for_uri ("file:///vls_test_td.vala");
+    var content = "line0\nline1\nline2";
+    Vls.TextDocument doc;
+    try {
+        doc = new Vls.TextDocument (ctx, file, content);
+    } catch (GLib.FileError e) {
+        assert_not_reached ();
+    }
+
+    // matches the equivalent Foundation conversion (no per-call O(n) scan)
+    var expected = Vls.Foundation.byte_offset (content, 1, 2);
+    assert (doc.byte_offset (1, 2) == expected);
+    assert (doc.byte_offset (0, 0) == 0);
+    assert (doc.byte_offset (3, 5) == content.length);
+
+    // cache is invalidated when content changes
+    doc.content = "abc\nxyz";
+    assert (doc.byte_offset (1, 0) == 4); // "abc\n"
+    // and stays consistent after the change
+    assert (doc.byte_offset (0, 2) == 2);
 }

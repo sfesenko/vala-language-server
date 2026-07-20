@@ -321,7 +321,7 @@ class Vls.SymbolExtractor : Object {
     public int method_arguments { get; private set; default = -1; }
 
     public SymbolExtractor (Position pos, Vala.SourceFile source_file, Vala.CodeContext? context = null) {
-        this.idx = (long) Util.get_string_pos (source_file.content, pos.line, pos.character);
+        this.idx = (long) Vls.Foundation.byte_offset (source_file.content, pos.line, pos.character);
         this.pos = pos;
         this.source_file = source_file;
         if (context != null)

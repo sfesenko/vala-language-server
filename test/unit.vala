@@ -101,7 +101,7 @@ void test_find_name_in_text () {
     assert (find_name_in_text ("bar baz", "foo") == -1);
 }
 
-void test_line_byte_length () {
+ void test_line_byte_length () {
     assert (line_byte_length ("hello\nworld", 0) == 5);
     assert (line_byte_length ("hello\nworld", 1) == 5);
     assert (line_byte_length ("single", 0) == 6);
@@ -109,6 +109,24 @@ void test_line_byte_length () {
     assert (line_byte_length ("\n\n", 1) == 0);
     assert (line_byte_length ("abc\n\ndef", 1) == 0);
 }
+
+void test_textdocument_byte_offset () {
+    var ctx = new Vala.CodeContext ();
+    var file = File.new_for_uri ("file:///vls_test_td_unit.vala");
+    Vls.TextDocument doc;
+    try {
+        doc = new Vls.TextDocument (ctx, file, "line0\nline1\nline2");
+    } catch (GLib.FileError e) {
+        assert_not_reached ();
+    }
+    assert (doc.byte_offset (0, 0) == 0);
+    assert (doc.byte_offset (1, 2) == 8);
+    assert (doc.byte_offset (3, 5) == 17);
+    // cache invalidates on content change
+    doc.content = "abc\nxyz";
+    assert (doc.byte_offset (1, 0) == 4);
+}
+
 
 void test_is_decl_keyword () {
     assert (is_decl_keyword ("public"));
@@ -399,6 +417,7 @@ int main (string[] args) {
     Test.add_func ("/vls/foundation/response_builder/full", test_response_builder_full);
     Test.add_func ("/vls/foundation/response_builder/delta", test_response_builder_delta);
     Test.add_func ("/vls/foundation/response_builder/delta_crash_regression", test_response_builder_delta_crash_regression);
+    Test.add_func ("/vls/util/textdocument_byte_offset", test_textdocument_byte_offset);
     Vls.Util.set_project_root (Environment.get_current_dir ());
     return Test.run ();
 }

@@ -28,6 +28,7 @@ integration_src = files([
   'int_log.vala',
   'int_golden.vala',
   'int_regression.vala',
+  'int_perf.vala',
 ])
 
 int_exe = executable('vls-int-test',
@@ -116,6 +117,8 @@ integration_tests = [
   '/int/regression/adversarial_smoke_template_string',
   '/int/regression/adversarial_smoke_single_dollar',
   '/int/regression/adversarial_smoke_inverted_ref',
+  '/int/perf/compile_latency',
+  '/int/perf/semantic_tokens_latency',
 ]
 
 foreach t : integration_tests

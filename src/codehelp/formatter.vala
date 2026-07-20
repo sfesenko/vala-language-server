@@ -41,8 +41,8 @@ namespace Vls.Formatter {
         if (range == null) {
             stdin_buf = source.content;
         } else {
-            var from = (long)Util.get_string_pos (source.content, range.start.line, range.start.character);
-            var to = (long)Util.get_string_pos (source.content, range.end.line, range.end.character);
+            var from = (long)Vls.Foundation.byte_offset (source.content, range.start.line, range.start.character);
+            var to = (long)Vls.Foundation.byte_offset (source.content, range.end.line, range.end.character);
             stdin_buf = source.content[from:to];
         }
         string? stdout_buf = null, stderr_buf = null;

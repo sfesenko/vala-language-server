@@ -137,7 +137,7 @@ class Vls.CodeStyleAnalyzer : AbstractAnalyzer {
         unowned var content = (file is TextDocument) ?
             ((TextDocument)file).last_fresh_content : file.content;
         var sr = callable.source_reference;
-        var zero_idx = (long) Util.get_string_pos (content, sr.end.line - 1, sr.end.column);
+        var zero_idx = (long) Vls.Foundation.byte_offset (content, sr.end.line - 1, sr.end.column);
         unowned string text = content.offset (zero_idx);
         var spaces = 0;
         unichar c = '\0';

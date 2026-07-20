@@ -466,12 +466,15 @@ class Vls.Compilation : BuildTarget {
         if (stale || !_completed_first_compile) {
             debug ("[SEMTOK] build_if_stale: recompiling%s%s",
                    stale ? " (stale)" : "", !_completed_first_compile ? " (first compile)" : "");
+            var compile_start = new DateTime.now ();
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
             // TODO: cancellable compilation
             debug ("[SEMTOK] compile: starting");
             compile ();
-            debug ("[SEMTOK] compile: done, last_updated=%s", last_updated.to_string ());
+            var compile_elapsed = new DateTime.now ().difference (compile_start);
+            debug ("[SEMTOK] compile: done in %.3fs, last_updated=%s",
+                   compile_elapsed / 1000000.0, last_updated.to_string ());
         } else if (updated_file) {
             // even if the files are unchanged after updates, we need to
             // silently update the last_updated property of this target at the

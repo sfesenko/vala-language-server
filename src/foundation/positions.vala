@@ -78,7 +78,18 @@ namespace Vls.Foundation {
      * Returns null when [sr] or its buffer is unavailable, or when the
      * reference is inverted (end before begin).
      */
-    public string? slice_sourceref (Vala.SourceReference? sr) {
+    /**
+     * Slice the source text covered by [sr] using a pre-built {@link LineIndex}
+     * for [sr.file]'s buffer. The slice is taken from the index's own buffer
+     * (the one it was built from), so the computed byte offsets are always
+     * consistent. This is O(1)–O(log n) per call, replacing the two O(buffer)
+     * {@link Vls.Util.get_string_pos} scans that {@link slice_sourceref}
+     * performs on every call — important for callers that invoke it once per
+     * source reference during an AST walk.
+     *
+     * Pass a null [index] to fall back to {@link slice_sourceref}'s behavior.
+     */
+    public string? slice_sourceref_with (Vala.SourceReference? sr, LineIndex? index) {
         if (sr == null || sr.file == null)
             return null;
         // Vala always uses 1-based lines/columns, but guard against a
@@ -86,14 +97,27 @@ namespace Vls.Foundation {
         // before delegating to the normalizing range math.
         if (sr.begin.line < 1 || sr.begin.column < 1 || sr.end.line < 1 || sr.end.column < 1)
             return null;
-        var buf = buffer_for (sr.file);
+        unowned string? buf = index != null ? index.content : buffer_for (sr.file);
         if (buf == null)
             return null;
-        long from = (long) Util.get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
-        long to = (long) Util.get_string_pos (buf, (uint) (sr.end.line - 1), (uint) (sr.end.column));
+        long from = index != null
+            ? index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1))
+            : (long) Util.get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+        long to = index != null
+            ? index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column)
+            : (long) Util.get_string_pos (buf, (uint) (sr.end.line - 1), (uint) sr.end.column);
         if (to < from)
             return null;
         return buf[from:to];
+    }
+
+    /**
+     * Slice the source text covered by [sr] using the file's consistent buffer
+     * (see {@link buffer_for}). Convenience wrapper around
+     * {@link slice_sourceref_with} with no index.
+     */
+    public string? slice_sourceref (Vala.SourceReference? sr) {
+        return slice_sourceref_with (sr, null);
     }
 
     private static bool location_before (Vala.SourceLocation a, Vala.SourceLocation b) {
@@ -188,7 +212,7 @@ namespace Vls.Foundation {
         public LineIndex (string? content) {
             buf = content;
             if (buf == null || buf.length == 0) {
-                line_starts[0] = 0;
+                line_starts = new long[] { 0 };
                 return;
             }
             // First pass: count newlines to size the array exactly.
@@ -222,6 +246,25 @@ namespace Vls.Foundation {
          */
         public uint line_count {
             get { return (uint) line_starts.length; }
+        }
+
+        /**
+         * Number of bytes in [line] (excluding any trailing newline). Returns
+         * 0 for lines past the end of the buffer. Uses the precomputed line
+         * starts, so it is an allocation-free, O(1) replacement for
+         * {@link Vls.Util.line_byte_length} when a {@link LineIndex} is already
+         * built for the buffer.
+         */
+        public long byte_length_of_line (uint line) {
+            if (buf == null || line >= line_starts.length)
+                return 0;
+            long start = line_starts[line];
+            long end = (line + 1 < line_starts.length) ? line_starts[line + 1] : buf.length;
+            // strip the trailing newline so the result matches
+            // Vls.Util.line_byte_length (which stops at '\n')
+            if (end > start && buf[end - 1] == '\n')
+                end--;
+            return end - start;
         }
 
         /**
@@ -307,5 +350,22 @@ namespace Vls.Foundation {
         if (buf == null)
             return Position ();
         return offset_to_position_with (new LineIndex (buf), byte_off);
+    }
+
+    /**
+     * Convert a zero-based (line, character) position to a byte offset in
+     * [buf], the inverse of {@link offset_to_position}.
+     *
+     * This is a drop-in replacement for {@link Vls.Util.get_string_pos}: it
+     * takes the same zero-based line/character convention and returns the same
+     * byte offset, but builds a {@link LineIndex} once per call. For repeated
+     * conversions against the same buffer (e.g. a {@link Vls.TextDocument}),
+     * cache the index and call {@link LineIndex.byte_offset_for_char}
+     * directly to avoid rebuilding it each time.
+     */
+    public long byte_offset (string? buf, uint line, uint character) {
+        if (buf == null)
+            return 0;
+        return new LineIndex (buf).byte_offset_for_char (line, character);
     }
 }

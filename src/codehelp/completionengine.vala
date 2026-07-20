@@ -24,7 +24,7 @@ namespace Vls.CompletionEngine {
      * Extract the text from the start of the current line to the cursor position.
      */
     string extract_line_prefix (Vala.SourceFile doc, Position pos) {
-        long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+        long idx = (long) Vls.Foundation.byte_offset (doc.content, pos.line, pos.character);
         long line_start = idx - pos.character;
         var prefix = new StringBuilder ();
         for (long i = line_start; i < idx; i++) {
@@ -55,7 +55,7 @@ namespace Vls.CompletionEngine {
             CompletionContext? completion_context = this.completion_context;
 
             bool is_pointer_access = false;
-            long idx = (long) Util.get_string_pos (doc.content, pos.line, pos.character);
+            long idx = (long) Vls.Foundation.byte_offset (doc.content, pos.line, pos.character);
 
         Position end_pos = pos.dup ();
         bool is_member_access = false;

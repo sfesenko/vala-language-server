@@ -31,14 +31,29 @@ class Vls.Server : Jsonrpc.Server {
     const uint check_update_context_period_ms = 100;
     const int64 update_context_delay_inc_us = 500 * 1000;
     const int64 update_context_delay_max_us = 1000 * 1000;
-    const uint wait_for_context_update_delay_ms = 200;
 
     /**
      * Contains documentation from found GIR files.
      */
     GirDocumentation documentation;
 
-    HashSet<Request> pending_requests;
+    class PendingRequest {
+        public Request req;
+        public OnContextUpdatedFunc callback;
+        public PendingRequest (Request req, owned OnContextUpdatedFunc callback) {
+            this.req = req;
+            this.callback = (owned) callback;
+        }
+        public static uint hash (PendingRequest? p) { return Request.hash (p != null ? p.req : null); }
+        public static bool equal (PendingRequest? a, PendingRequest? b) {
+            return a != null && b != null && Request.equal (a.req, b.req);
+        }
+    }
+
+    // Requests waiting for a context rebuild, each with its continuation.
+    // Fired centrally by {@link fire_pending_context_updates} when the rebuild
+    // finishes, replacing the old 200 ms poll (see perf.md Phase A3).
+    HashSet<PendingRequest> pending_requests;
 
     bool shutting_down = false;
 
@@ -121,7 +136,7 @@ class Vls.Server : Jsonrpc.Server {
 
         accept_io_stream (new SimpleIOStream (input_stream, output_stream));
 
-        pending_requests = new HashSet<Request> (Request.hash, Request.equal);
+        pending_requests = new HashSet<PendingRequest> (PendingRequest.hash, PendingRequest.equal);
 
         this.projects = new HashTable<Project, ulong> (GLib.direct_hash, GLib.direct_equal);
 
@@ -530,11 +545,11 @@ class Vls.Server : Jsonrpc.Server {
             return;
 
         var req = new Request (id);
-        // if (pending_requests.remove (req))
-        //     debug (@"[cancelRequest] cancelled request $req");
-        // else
-        //     debug (@"[cancelRequest] request $req not found");
-        pending_requests.remove (req);
+        var pr = find_pending (req);
+        if (pr != null) {
+            pending_requests.remove (pr);
+            pr.callback (true);
+        }
     }
 
     public static void reply_null (Variant id, Jsonrpc.Client client, string method) {
@@ -896,8 +911,8 @@ protected void reply_error (int code, string message) {
                     } else {
                         var start = changeEvent.range.start;
                         var end = changeEvent.range.end;
-                        size_t pos_begin = Util.get_string_pos (sb.str, start.line, start.character);
-                        size_t pos_end = Util.get_string_pos (sb.str, end.line, end.character);
+                        size_t pos_begin = (size_t) source.byte_offset (start.line, start.character);
+                        size_t pos_end = (size_t) source.byte_offset (end.line, end.character);
                         sb.erase ((ssize_t) pos_begin, (ssize_t) (pos_end - pos_begin));
                         sb.insert ((ssize_t) pos_begin, changeEvent.text);
                     }
@@ -1026,6 +1041,9 @@ protected void reply_error (int code, string message) {
 
             // rebuild the documentation
             documentation.rebuild_if_stale ();
+
+            // satisfy any requests that waited for this rebuild (perf.md A3)
+            fire_pending_context_updates ();
         }
         return !this.shutting_down;
     }
@@ -1033,49 +1051,63 @@ protected void reply_error (int code, string message) {
     public delegate void OnContextUpdatedFunc (bool request_cancelled);
 
     /**
-     * Rather than satisfying all requests in `check_update_context ()`,
-     * to avoid race conditions, we have to spawn a timeout to check for
-     * the right conditions to call `on_context_updated_func ()`.
+     * Run `on_context_updated_func` once the code context is fresh.
+     *
+     * If no rebuild is pending, the continuation runs immediately. Otherwise
+     * the request is registered and satisfied centrally by
+     * {@link fire_pending_context_updates} when the rebuild completes — no
+     * polling. (Previously a 200 ms poll re-checked the main loop; see
+     * perf.md Phase A3.) A single idle re-check guards the rare window where
+     * a rebuild is already in flight (requests already reset to 0) when this
+     * is called.
      */
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func) {
         debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d",
                id.print (false), (int) update_context_requests, pending_requests.size);
-        // we've already updated the context
-        if (update_context_requests == 0)
+        // we've already updated the context (or none pending)
+        if (update_context_requests == 0) {
             on_context_updated_func (false);
-        else {
-            var req = new Request (id);
-            if (!pending_requests.add (req))
-                warning (@"Request ($req): request already in pending requests, this should not happen");
-            /* else
-                debug (@"Request ($req): added request to pending requests"); */
-            wait_for_context_update_aux (req, (owned) on_context_updated_func);
+            return;
         }
+        var req = new Request (id);
+        if (!pending_requests.add (new PendingRequest (req, (owned) on_context_updated_func)))
+            warning (@"Request ($req): request already in pending requests, this should not happen");
+        // Safety net: if a rebuild was already in flight when we registered
+        // (so fire_pending_context_updates already ran), satisfy on idle.
+        Idle.add (() => {
+            var pr = find_pending (req);
+            if (pr == null) {
+                // already fired or cancelled
+                return Source.REMOVE;
+            }
+            if (update_context_requests == 0) {
+                pending_requests.remove (pr);
+                pr.callback (false);
+            }
+            // else: still pending, fire_pending_context_updates will handle it
+            return Source.REMOVE;
+        });
+    }
+
+    PendingRequest? find_pending (Request req) {
+        foreach (var pr in pending_requests)
+            if (Request.equal (pr.req, req))
+                return pr;
+        return null;
     }
 
     /**
-     * Execute `on_context_updated_func ()` or wait.
+     * Fire every request waiting on a context rebuild. Called by
+     * {@link check_update_context} once the rebuild finishes, so waiting
+     * requests are satisfied immediately instead of on a 200 ms poll.
      */
-    void wait_for_context_update_aux (Request req, owned OnContextUpdatedFunc on_context_updated_func) {
-        // we've already updated the context
-        if (update_context_requests == 0) {
-            if (!pending_requests.remove (req)) {
-                // debug (@"Request ($req): context updated but request cancelled");
-                on_context_updated_func (true);
-            } else {
-                // debug (@"Request ($req): context updated");
-                on_context_updated_func (false);
-            }
-        } else {
-            Timeout.add (wait_for_context_update_delay_ms, () => {
-                if (pending_requests.contains (req))
-                    wait_for_context_update_aux (req, (owned) on_context_updated_func);
-                else {
-                    // debug (@"Request ($req): cancelled before context update");
-                    on_context_updated_func (true);
-                }
-                return Source.REMOVE;
-            });
+    void fire_pending_context_updates () {
+        if (pending_requests.size == 0)
+            return;
+        var fired = pending_requests.to_array ();
+        foreach (var pr in fired) {
+            pending_requests.remove (pr);
+            pr.callback (false);
         }
     }
 

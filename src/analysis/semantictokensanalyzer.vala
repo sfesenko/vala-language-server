@@ -87,6 +87,34 @@ namespace Vls {
             this.visit_source_file (file);
         }
 
+        /**
+         * Slice [sr] using the pre-built {@link line_index} when available,
+         * falling back to {@link Vls.Foundation.slice_sourceref}. Keeps the
+         * semantic-tokens walk O(1)–O(log n) per source reference instead of the
+         * O(buffer) {@link Vls.Util.get_string_pos} scans (see review.md
+         * residual). The analyzer's {@link line_index} is built from
+         * {@link Vala.SourceFile.content}, which is the same buffer the source
+         * references are addressed against.
+         */
+        private string? slice_ref (Vala.SourceReference? sr) {
+            if (sr == null || sr.file == null)
+                return null;
+            return line_index != null
+                ? Vls.Foundation.slice_sourceref_with (sr, line_index)
+                : Vls.Foundation.slice_sourceref (sr);
+        }
+
+        /**
+         * Byte length of [line] in this file, using {@link line_index} when
+         * available, else {@link Vls.Util.line_byte_length}.
+         */
+        private uint line_len (uint line) {
+            if (line_index != null)
+                return (uint) line_index.byte_length_of_line (line);
+            var c = Vls.Foundation.buffer_for (file);
+            return c != null ? Util.line_byte_length (c, line) : 0;
+        }
+
         public ArrayList<SemanticToken> get_tokens () {
             return tokens;
         }
@@ -127,7 +155,7 @@ namespace Vls {
             // (end.column - begin.column + 1) counts UTF-8 code points, not
             // bytes. For multi-byte characters (e.g. "héllo") that over-counts.
             // Recompute from the buffer using byte offsets when available.
-            string text = Vls.Foundation.slice_sourceref (source_reference);
+            string text = slice_ref (source_reference);
             if (text != null)
                 length = (uint) text.length;
             try_emit_token (line, character, length, token_type, modifiers);
@@ -139,12 +167,9 @@ namespace Vls {
             var sr = node.source_reference;
             if (sr == null || sr.file != file)
                 return;
-            var content = Vls.Foundation.buffer_for (sr.file);
-            if (content == null)
-                return;
             // Slice against the consistent (last-compiled) buffer; null on inverted
             // or empty references (Vala's template rewrite can emit these).
-            string text = Vls.Foundation.slice_sourceref (sr);
+            string text = slice_ref (sr);
             if (text == null)
                 return;
             int name_start = Util.find_name_in_text (text, name);
@@ -157,7 +182,7 @@ namespace Vls {
             uint line = (uint) (sr.begin.line - 1);
             uint character = (uint) (sr.begin.column - 1) + (uint) name_start;
             uint length = (uint) name.length;
-            uint max_len = Util.line_byte_length (content, line);
+            uint max_len = line_len (line);
             if (character + length > max_len) {
                 debug ("[SEMTOK] add_name_token bounds fail: line=%u, char=%u, len=%u > max=%u, type=%u, node=%s",
                        line, character, length, max_len, token_type, node.type_name);
@@ -173,7 +198,7 @@ namespace Vls {
             if (sr == null || sr.file != file)
                 return;
             if (type.value_owned) {
-                string text = Vls.Foundation.slice_sourceref (sr);
+                string text = slice_ref (sr);
                 if (text == null)
                     return;
                 if (text.has_prefix ("owned")) {
@@ -234,7 +259,7 @@ namespace Vls {
                 return;
             // Slice against the consistent (last-compiled) buffer; null on
             // inverted or empty references.
-            string text = Vls.Foundation.slice_sourceref (sr);
+            string text = slice_ref (sr);
             if (text == null)
                 return;
             uint base_line = (uint) (sr.begin.line - 1);
@@ -525,7 +550,7 @@ namespace Vls {
                         uint line = (uint) sr.end.line - 1;
                         uint character = (uint) sr.end.column - (uint) member_name.length;
                         uint length = (uint) member_name.length;
-                        uint max_len = Util.line_byte_length (sr.file.content, line);
+                        uint max_len = line_len (line);
                         if (character + length <= max_len)
                             try_emit_token (line, character, length, tok_type, mods);
                     }

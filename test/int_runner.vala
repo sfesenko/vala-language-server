@@ -70,5 +70,7 @@ int main (string[] args) {
     Test.add_func ("/int/regression/adversarial_smoke_template_string", test_adversarial_smoke_template_string);
     Test.add_func ("/int/regression/adversarial_smoke_single_dollar", test_adversarial_smoke_single_dollar);
     Test.add_func ("/int/regression/adversarial_smoke_inverted_ref", test_adversarial_smoke_inverted_ref);
+    Test.add_func ("/int/perf/compile_latency", test_perf_compile_latency);
+    Test.add_func ("/int/perf/semantic_tokens_latency", test_perf_semantic_tokens_latency);
     return Test.run ();
 }

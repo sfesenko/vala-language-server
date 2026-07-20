@@ -19,6 +19,30 @@
 using Vala;
 
 class Vls.TextDocument : SourceFile {
+    // Cached line-start index, rebuilt lazily when the content changes.
+    // See {@link byte_offset} for the rationale (turns O(n) per-call
+    // position conversion into O(log n) after the first build).
+    private Vls.Foundation.LineIndex? _line_index = null;
+    private unowned string? _line_index_buf = null;
+
+    /**
+     * Convert a zero-based (line, character) position in this document's
+     * current {@link content} to a byte offset.
+     *
+     * Backed by a lazily-built, content-keyed {@link Vls.Foundation.LineIndex},
+     * so repeated conversions against the same buffer (the common case during
+     * editing and request handling) are O(log n) rather than O(n). The cache
+     * is invalidated automatically whenever {@link content} is replaced.
+     */
+    public long byte_offset (uint line, uint character) {
+        unowned string buf = this.content;
+        if (_line_index == null || _line_index_buf != buf) {
+            _line_index = new Vls.Foundation.LineIndex (buf);
+            _line_index_buf = buf;
+        }
+        return _line_index.byte_offset_for_char (line, character);
+    }
+
     /**
      * This must be manually updated by anything that changes the content
      * of this document.
