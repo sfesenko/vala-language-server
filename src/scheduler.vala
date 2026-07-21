@@ -54,6 +54,33 @@ class Vls.Scheduler {
             throw worker.error;
         return worker.result;
     }
+
+    /**
+     * Run [task] on a worker thread and block the caller until the result
+     * is ready. Uses a temporary MainLoop — GLib supports nested MainLoops,
+     * so this is safe to call from a running MainLoop callback. However,
+     * the caller blocks for the duration of the task, so the outer loop
+     * cannot process other events during this time. Suitable for one-shot
+     * blocking I/O (e.g. Meson spawn) during initialization or infrequent
+     * operations where main-loop responsiveness is not critical.
+     */
+    public T run_sync<T> (owned Vls.TaskFunc<T> task, GLib.Cancellable? cancellable = null) throws Error {
+        bool done = false;
+        var loop = new MainLoop ();
+
+        GLib.SourceFunc callback = () => {
+            done = true;
+            loop.quit ();
+            return Source.REMOVE;
+        };
+        var worker = new Vls.Worker<T> ((owned) task, (owned) callback, cancellable);
+        _thread_pool.add (worker);
+        loop.run ();
+
+        if (worker.error != null)
+            throw worker.error;
+        return worker.result;
+    }
 }
 
 /**

@@ -49,17 +49,17 @@ namespace Vls.Navigation {
     void goto_definition (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
 
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? file = server.find_file (p.textDocument.uri, out compilation, out project);
+        if (file == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.reply_null (id, client, method);
+            return;
+        }
+
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? file = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (file == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -70,7 +70,7 @@ namespace Vls.Navigation {
                 var handler = new DefinitionHandler (ctx);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     /**
@@ -265,6 +265,15 @@ namespace Vls.Navigation {
     void show_references (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<ReferenceParams>(@params);
 
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.reply_null (id, client, method);
+            return;
+        }
+
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 Server.reply_null (id, client, method);
@@ -274,38 +283,29 @@ namespace Vls.Navigation {
             bool is_highlight = method == "textDocument/documentHighlight";
             bool include_declaration = p.context != null ? p.context.includeDeclaration : true;
 
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-                Server.reply_null (id, client, method);
-                return;
-            }
-
             var ctx = new Server.RequestContext (server, client, id, method,
                                                  (!) doc, compilation, project, p.position);
             Server.with_code_context (compilation.code_context, () => {
                 var handler = new ReferencesHandler (ctx, is_highlight, include_declaration);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     void show_implementations (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
 
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.reply_null (id, client, method);
+            return;
+        }
+
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -316,6 +316,6 @@ namespace Vls.Navigation {
                 var handler = new ImplementationHandler (ctx);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

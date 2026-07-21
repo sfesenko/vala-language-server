@@ -170,7 +170,7 @@ namespace Vls.TypeHierarchy {
                 var handler = new PrepareTypeHierarchyHandler (ctx, p);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     class ShowTypeHierarchyHandler : Server.RequestHandler {
@@ -231,6 +231,6 @@ namespace Vls.TypeHierarchy {
                 var handler = new ShowTypeHierarchyHandler (ctx, item, supertypes);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

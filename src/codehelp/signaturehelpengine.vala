@@ -79,7 +79,7 @@ namespace Vls.SignatureHelpEngine {
                 else
                     Server.reply_null (id, client, method);
                 Vala.CodeContext.pop ();
-            });
+            }, compilation);
         } else {
             finish (client, id, signatures, active_param);
         }

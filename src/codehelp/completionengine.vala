@@ -152,7 +152,7 @@ namespace Vls.CompletionEngine {
                                                        pos, end_pos, completions);
                     finish (client, id, completions);
                     Vala.CodeContext.pop ();
-                });
+                }, compilation);
             } else {
                 finish (client, id, completions);
             }

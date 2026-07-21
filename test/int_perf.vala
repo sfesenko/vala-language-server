@@ -23,10 +23,8 @@ using GLib;
 using Jsonrpc;
 
 /**
- * A mid-sized fixture project that exercises the full compile pipeline:
- * package imports, generics, async, delegates, signals, template strings,
- * enums, interfaces, structs, class hierarchy, properties, and a few methods.
- * Not tiny (would skip real work), not huge (would make CI flaky).
+ * Mid-sized fixture: generics, async, delegates, signals, templates,
+ * enums, interfaces, structs, hierarchy, properties.
  */
 const string PERF_FIXTURE = """namespace Perf {
     public interface IDrawable {
@@ -195,66 +193,38 @@ public void main () {
 """;
 
 void test_perf_compile_latency () {
-    // This test starts the server, opens the fixture, and measures
-    // the time from didOpen to first publishDiagnostics (i.e. first compile).
-    // The server's debug log prints "[SEMTOK] compile: done in X.XXXs"
-    // which we assert is within a generous budget.
-    //
-    // Budget: first compile of this fixture should complete in < 8s on CI hardware.
-    // (Local dev machines typically ~1–2s; CI can be 3–5x slower.)
-    // We don't fail on absolute wall time — instead we assert the server
-    // actually produced diagnostics (proving it compiled) and log the time
-    // for manual trend tracking.
-    //
-    // Run with VLS_PERF_TEST=1 to enable the timing assertion.
-    // Without the env var, the test just logs and passes (CI smoke).
+    // setup_session already waits for first compile; verify server is
+    // functional via semantic tokens.  VLS_PERF_TEST=1 enables timing assert.
 
     var s = setup_session (PERF_FIXTURE, "perf.vala");
+    var h = new Helpers ();
 
-    // Wait for first diagnostics (compile complete)
-    var loop = new MainLoop ();
-    bool got_diagnostics = false;
+    var start = new DateTime.now ();
+    Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    var elapsed = new DateTime.now ().difference (start) / 1000000.0;
 
-    s.client.notification.connect ((c, method, @params) => {
-        if (method == "textDocument/publishDiagnostics" && !got_diagnostics) {
-            got_diagnostics = true;
-            loop.quit ();
-        }
-    });
+    assert (res != null);
+    Variant? data = res.lookup_value ("data", null);
+    assert (data != null);
+    assert (data.is_of_type (VariantType.ARRAY));
+    assert (data.n_children () > 0);
 
-    // Also watch for the compile-timing debug log from the server.
-    // We can't easily capture stderr from the subprocess here, so we
-    // rely on the VLS_PERF_TEST env var + debug log inspection in CI.
-    // The test at least proves the path works end-to-end.
+    stdout.printf ("[PERF] compile + semanticTokens: %.3fs\n", elapsed);
 
-    var timeout_id = Timeout.add (15000, () => {
-        loop.quit ();
-        return false;
-    });
-
-    loop.run ();
-    Source.remove (timeout_id);
-
-    assert (got_diagnostics);
-
-    // Optional strict budget (enabled via env var for CI gating)
     if (Environment.get_variable ("VLS_PERF_TEST") == "1") {
-        // The compile time is logged by the server to stderr.
-        // In CI we can parse the log. Here we just assert the path works.
-        // A real budget check would need log capture; this is a stub.
-        assert (true);
+        assert (elapsed < 2.0);
     }
 
     teardown_session (s);
 }
 
 void test_perf_semantic_tokens_latency () {
-    // Measures end-to-end semanticTokens/full latency after the first compile.
-    // This exercises the hot path: request -> analysis -> reply.
+    // End-to-end semanticTokens/full latency after first compile.
     var s = setup_session (PERF_FIXTURE, "perf2.vala");
     var h = new Helpers ();
 
-    // Wait for initial compile
     var loop = new MainLoop ();
     s.client.notification.connect ((c, method, @params) => {
         if (method == "textDocument/publishDiagnostics")
@@ -264,12 +234,11 @@ void test_perf_semantic_tokens_latency () {
     loop.run ();
     Source.remove (timeout_id);
 
-    // Now request semantic tokens and time the round-trip
     var start = new DateTime.now ();
     Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
         textDocument: h.build_dict (uri: new Variant.string (s.uri))
     ));
-    var elapsed = new DateTime.now ().difference (start) / 1000000.0; // seconds
+    var elapsed = new DateTime.now ().difference (start) / 1000000.0;
 
     assert (res != null);
     Variant? data = res.lookup_value ("data", null);
@@ -277,13 +246,186 @@ void test_perf_semantic_tokens_latency () {
     assert (data.is_of_type (VariantType.ARRAY));
     assert (data.n_children () > 0);
 
-    // Log for CI trend (not a hard assert unless VLS_PERF_TEST=1)
     stdout.printf ("[PERF] semanticTokens/full: %.3fs\n", elapsed);
 
     if (Environment.get_variable ("VLS_PERF_TEST") == "1") {
-        // Generous budget: < 2s end-to-end for this fixture on CI
         assert (elapsed < 2.0);
     }
+
+    teardown_session (s);
+}
+
+void test_perf_recompilation_after_edit () {
+    // Verify recompile after edit ( cancel + compile_in_progress guard).
+    var s = setup_session (PERF_FIXTURE, "recompile.vala");
+    var h = new Helpers ();
+
+    // Connect handler before edit to avoid race.  setup_session's handler
+    // is still connected, so use a dedicated flag instead of a counter.
+    var loop = new MainLoop ();
+    bool recompile_happened = false;
+
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics" && !recompile_happened) {
+            recompile_happened = true;
+            loop.quit ();
+        }
+    });
+    var timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+
+    var changed = PERF_FIXTURE.replace ("public void demo ()", "public void extra () {}\n    public void demo ()");
+    Helpers.notify (s.client, "textDocument/didChange", h.build_dict (
+        textDocument: h.build_dict (
+            uri: new Variant.string (s.uri),
+            version: new Variant.int32 (2)
+        ),
+        contentChanges: new Variant.array (null, { h.build_dict (text: new Variant.string (changed)) })
+    ));
+    loop.run ();
+    Source.remove (timeout_id);
+    assert (recompile_happened);
+
+    teardown_session (s);
+}
+
+void test_perf_semantic_tokens_after_edit () {
+    // Verify source_analyzers cache survives edit + recompile.
+    var s = setup_session (SEMANTIC_TOKENS_FIXTURE, "semtok_edit.vala");
+    var h = new Helpers ();
+
+    var loop = new MainLoop ();
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics")
+            loop.quit ();
+    });
+    var timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+    loop.run ();
+    Source.remove (timeout_id);
+    Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    Variant? data1 = res.lookup_value ("data", null);
+    assert (data1 != null);
+    assert (data1.n_children () > 0);
+
+    var changed = SEMANTIC_TOKENS_FIXTURE.replace (
+        "public override void abs_method () {}",
+        "public override void abs_method () {}\n        public void after_edit () {}"
+    );
+
+    loop = new MainLoop ();
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics")
+            loop.quit ();
+    });
+    timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+
+    Helpers.notify (s.client, "textDocument/didChange", h.build_dict (
+        textDocument: h.build_dict (
+            uri: new Variant.string (s.uri),
+            version: new Variant.int32 (2)
+        ),
+        contentChanges: new Variant.array (null, { h.build_dict (text: new Variant.string (changed)) })
+    ));
+    loop.run ();
+    Source.remove (timeout_id);
+
+    res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    Variant? data2 = res.lookup_value ("data", null);
+    assert (data2 != null);
+    assert (data2.n_children () > 0);
+
+    teardown_session (s);
+}
+
+const string USING_DIRECTIVE_FIXTURE = """using GLib;
+public class Foo {
+    public void main () {
+        stdout.printf ("hello\\n");
+    }
+}
+""";
+
+const string USING_DIRECTIVE_FIXTURE_V2 = """using GLib;
+using Gee;
+public class Foo {
+    public void main () {
+        var list = new ArrayList<string> ();
+        stdout.printf ("hello\\n");
+    }
+}
+""";
+
+void test_perf_using_directives_survive_recompile () {
+    // Verify using directives don't accumulate across recompiles ( fix).
+    // v1 (GLib) -> v2 (GLib+Gee) -> v1 (GLib): must not crash.
+    var s = setup_session (USING_DIRECTIVE_FIXTURE, "using_dir.vala");
+    var h = new Helpers ();
+
+    var loop = new MainLoop ();
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics")
+            loop.quit ();
+    });
+    var timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+    loop.run ();
+    Source.remove (timeout_id);
+    Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    assert (res.lookup_value ("data", null) != null);
+
+    loop = new MainLoop ();
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics")
+            loop.quit ();
+    });
+    timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+
+    Helpers.notify (s.client, "textDocument/didChange", h.build_dict (
+        textDocument: h.build_dict (
+            uri: new Variant.string (s.uri),
+            version: new Variant.int32 (2)
+        ),
+        contentChanges: new Variant.array (null, { h.build_dict (text: new Variant.string (USING_DIRECTIVE_FIXTURE_V2)) })
+    ));
+    loop.run ();
+    Source.remove (timeout_id);
+
+    res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    assert (res.lookup_value ("data", null) != null);
+
+    // v2 -> v1
+    loop = new MainLoop ();
+    s.client.notification.connect ((c, method, @params) => {
+        if (method == "textDocument/publishDiagnostics")
+            loop.quit ();
+    });
+    timeout_id = Timeout.add (15000, () => { loop.quit (); return false; });
+
+    Helpers.notify (s.client, "textDocument/didChange", h.build_dict (
+        textDocument: h.build_dict (
+            uri: new Variant.string (s.uri),
+            version: new Variant.int32 (3)
+        ),
+        contentChanges: new Variant.array (null, { h.build_dict (text: new Variant.string (USING_DIRECTIVE_FIXTURE)) })
+    ));
+    loop.run ();
+    Source.remove (timeout_id);
+
+    res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    assert (res.lookup_value ("data", null) != null);
 
     teardown_session (s);
 }

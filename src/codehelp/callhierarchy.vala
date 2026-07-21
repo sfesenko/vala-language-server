@@ -202,7 +202,7 @@ namespace Vls.CallHierarchy {
                 var handler = new PrepareCallHierarchyHandler (ctx, p);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     class CallHierarchyIncomingHandler : Server.RequestHandler {
@@ -256,7 +256,7 @@ namespace Vls.CallHierarchy {
                 var handler = new CallHierarchyIncomingHandler (ctx, item);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 
     class CallHierarchyOutgoingHandler : Server.RequestHandler {
@@ -310,6 +310,6 @@ namespace Vls.CallHierarchy {
                 var handler = new CallHierarchyOutgoingHandler (ctx, item);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

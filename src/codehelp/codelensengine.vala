@@ -181,6 +181,6 @@ namespace Vls.CodeLensEngine {
                 var handler = new CodeLensHandler (ctx);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

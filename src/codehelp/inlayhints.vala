@@ -198,6 +198,6 @@ namespace Vls.InlayHints {
                 var handler = new InlayHintHandler (ctx, p);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

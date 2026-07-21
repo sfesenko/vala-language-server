@@ -152,17 +152,17 @@ namespace Vls.HoverHandler {
     void hover (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
 
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.reply_null (id, client, method);
+            return;
+        }
+
         server.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
-                Server.reply_null (id, client, "textDocument/hover");
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.reply_null (id, client, method);
                 return;
             }
@@ -173,6 +173,6 @@ namespace Vls.HoverHandler {
                 var handler = new HoverHandler (ctx);
                 handler.run ();
             });
-        });
+        }, compilation);
     }
 }

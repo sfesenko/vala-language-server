@@ -61,13 +61,14 @@ class Vls.Server : Jsonrpc.Server {
      * Prevents overlapping compilations; cancelled via {@link compile_cancellable}
      * when a newer edit arrives.
      */
-    bool compile_in_progress = false;
+    int compile_in_progress_count = 0;
 
     /**
-     * Per-compile cancellable. Cancelled when a newer edit arrives
+     * Per-compilation cancellable. Cancelled when a newer edit arrives
      * so the in-flight worker discards stale work instead of completing it.
+     * Keyed by Compilation so each target gets its own cancellable.
      */
-    Cancellable? compile_cancellable = null;
+    Gee.HashMap<Compilation, Cancellable> compile_cancellables = new Gee.HashMap<Compilation, Cancellable> ();
 
     bool shutting_down = false;
 
@@ -955,8 +956,8 @@ protected void reply_error (int code, string message) {
         update_context_time_us = get_monotonic_time () + delay_us;
         // Cancel any in-flight compile — newer edits make it stale.
         // The worker will check this and discard its result.
-        if (compile_cancellable != null)
-            compile_cancellable.cancel ();
+        foreach (var entry in compile_cancellables.entries)
+            entry.value.cancel ();
         debug ("[SEMTOK] request_context_update: requests=%d, delay=%dms",
                (int) update_context_requests, (int) (delay_us / 1000));
     }
@@ -968,19 +969,24 @@ protected void reply_error (int code, string message) {
     bool check_update_context () {
         if (update_context_requests > 0 && get_monotonic_time () >= update_context_time_us) {
             debug ("[SEMTOK] check_update_context: starting rebuild (requests=%d)", (int) update_context_requests);
-            update_context_requests = 0;
-            update_context_time_us = 0;
 
             Project[] all_projects = projects.get_keys_as_array ();
             all_projects += default_project;
             bool reconfigured_projects = false;
 
-            // If a compile is already in flight, skip this cycle —
-            // the in-flight compile will swap and re-trigger via pending_requests.
-            if (compile_in_progress) {
-                debug ("[SEMTOK] check_update_context: compile in progress, deferring");
+            // If compiles are already in flight, skip this cycle —
+            // the in-flight compiles will swap and re-trigger via pending_requests.
+            // Bug #1: Do NOT reset update_context_requests here — new edits
+            // arriving during the compile must still see a non-zero counter
+            // so they wait instead of proceeding against stale data.
+            if (compile_in_progress_count > 0) {
+                debug ("[SEMTOK] check_update_context: %d compile(s) in progress, deferring", compile_in_progress_count);
                 return true;
             }
+
+            // Now safe to reset — we're about to start compiles.
+            update_context_requests = 0;
+            update_context_time_us = 0;
 
             foreach (var project in all_projects) {
                 try {
@@ -990,15 +996,16 @@ protected void reply_error (int code, string message) {
                     foreach (var compilation in project.get_compilations ()) {
                         if (compilation.is_stale ()) {
                             debug ("[SEMTOK] check_update_context: starting async compile for %s", compilation.id);
-                            compile_in_progress = true;
+                            compile_in_progress_count++;
                             // create a fresh cancellable for this compile.
                             // request_context_update() cancels it when new edits arrive.
-                            compile_cancellable = new Cancellable ();
+                            var compile_canc = new Cancellable ();
+                            compile_cancellables[compilation] = compile_canc;
                             // Dispatch the heavy compile to a worker thread via the Scheduler.
                             // compile_on_worker creates its own isolated CodeContext
                             // and does not touch the main-thread state until
                             // swap_compile_result is called.
-                            var compile_canc = compile_cancellable;
+                            var captured_project = project;
                             scheduler.run_async.begin<Compilation.CompileResult> (() => {
                                 return compilation.compile_on_worker (compile_canc);
                             }, compile_canc, (obj, res) => {
@@ -1019,19 +1026,27 @@ protected void reply_error (int code, string message) {
                                     if (!was_cancelled)
                                         warning ("Async compile failed: %s", e.message);
                                 } finally {
-                                    compile_in_progress = false;
-                                    compile_cancellable = null;
-                                    // Skip diagnostics/firing when cancelled — the next
-                                    // compile cycle will produce fresh diagnostics.
+                                    compile_in_progress_count--;
+                                    compile_cancellables.unset (compilation);
                                     if (!was_cancelled) {
-                                        fire_pending_context_updates ();
-                                        foreach (var p in all_projects)
-                                            foreach (var comp in p.get_compilations ())
-                                                publish_diagnostics (p, comp, update_context_client);
+                                        // Item 7: only publish diagnostics for the
+                                        // compilation that was actually recompiled,
+                                        // not all compilations (avoids stale-diagnostic
+                                        // overwrite for multi-compilation files).
+                                        publish_diagnostics (captured_project, compilation, update_context_client);
+                                        // Fire pending requests only when ALL compilations
+                                        // have finished — avoids satisfying requests against
+                                        // a partially-updated state.
+                                        if (compile_in_progress_count == 0)
+                                            fire_pending_context_updates ();
                                     }
+                                    // When cancelled: don't fire pending requests, they'll
+                                    // be satisfied by the next compile cycle. The Idle
+                                    // safety net in wait_for_context_update covers race
+                                    // conditions where a request arrives between the
+                                    // finally block and the next timer tick.
                                 }
                             });
-                            return true; // async — continue later
                         }
                     }
 
@@ -1145,8 +1160,10 @@ protected void reply_error (int code, string message) {
             on_context_updated_func (false);
             return;
         }
-        // we've already updated the context (or none pending)
-        if (update_context_requests == 0) {
+        // Bug #2: Also check compile_in_progress_count — compiles may be in-flight
+        // with the counter already reset (or about to be). If compiles are
+        // running, we must wait for them to finish and re-check.
+        if (update_context_requests == 0 && compile_in_progress_count == 0) {
             on_context_updated_func (false);
             return;
         }
@@ -1167,7 +1184,8 @@ protected void reply_error (int code, string message) {
                 pr.callback (false);
                 return Source.REMOVE;
             }
-            if (update_context_requests == 0) {
+            // Bug #2: Also check compile_in_progress_count on idle
+            if (update_context_requests == 0 && compile_in_progress_count == 0) {
                 pending_requests.remove (pr);
                 pr.callback (false);
             }

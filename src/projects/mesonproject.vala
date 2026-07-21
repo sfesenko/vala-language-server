@@ -27,6 +27,7 @@ class Vls.MesonProject : Project {
     private string build_dir;
     private bool configured_once;
     private bool requires_general_build;
+    private Scheduler _scheduler;
 
     /**
      * Substitute special arguments like `@INPUT@` and `@OUTPUT@` as they
@@ -211,8 +212,9 @@ class Vls.MesonProject : Project {
                 // retry with the other method: get output of `meson introspect --${command} ${build_dir}`
                 string subst_command = command.replace("_", "-");
                 string[] spawn_args = {"meson", "introspect", "--" + subst_command, "."};
-                string proc_stdout, proc_stderr;
-                int proc_status;
+                string proc_stdout = "";
+                string proc_stderr = "";
+                int proc_status = -1;
 
                 string command_str = "";
                 foreach (string part in spawn_args) {
@@ -223,15 +225,34 @@ class Vls.MesonProject : Project {
 
                 debug ("file does not exist, fallback to %s", command_str);
 
-                Process.spawn_sync (
-                    build_dir,
-                    spawn_args,
-                    null,
-                    SpawnFlags.SEARCH_PATH,
-                    null,
-                    out proc_stdout,
-                    out proc_stderr,
-                    out proc_status);
+                if (_scheduler != null) {
+                    // C2: run spawn on worker thread to avoid blocking main loop
+                    proc_stdout = _scheduler.run_sync<string> (() => {
+                        string stdout_str;
+                        int status;
+                        Process.spawn_sync (
+                            build_dir,
+                            spawn_args,
+                            null,
+                            SpawnFlags.SEARCH_PATH,
+                            null,
+                            out stdout_str,
+                            null,
+                            out status);
+                        proc_status = status;
+                        return stdout_str;
+                    });
+                } else {
+                    Process.spawn_sync (
+                        build_dir,
+                        spawn_args,
+                        null,
+                        SpawnFlags.SEARCH_PATH,
+                        null,
+                        out proc_stdout,
+                        out proc_stderr,
+                        out proc_status);
+                }
 
                 if (proc_status != 0) {
                     warning ("command `%s' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -256,18 +277,36 @@ class Vls.MesonProject : Project {
         build_files_have_changed = false;
 
         // 0. we support only Meson >= 0.50
-        string meson_version_proc_stdout, meson_version_proc_stderr;
-        int meson_version_proc_status;
+        string meson_version_proc_stdout = "";
+        string meson_version_proc_stderr = "";
+        int meson_version_proc_status = -1;
 
-        Process.spawn_sync (
-            build_dir,
-            "meson --version".split (" "),
-            null,
-            SpawnFlags.SEARCH_PATH,
-            null,
-            out meson_version_proc_stdout,
-            out meson_version_proc_stderr,
-            out meson_version_proc_status);
+        if (_scheduler != null) {
+            // C2: run spawn on worker thread to avoid blocking main loop
+            meson_version_proc_stdout = _scheduler.run_sync<string> (() => {
+                string stdout_str;
+                Process.spawn_sync (
+                    build_dir,
+                    "meson --version".split (" "),
+                    null,
+                    SpawnFlags.SEARCH_PATH,
+                    null,
+                    out stdout_str,
+                    null,
+                    out meson_version_proc_status);
+                return stdout_str;
+            });
+        } else {
+            Process.spawn_sync (
+                build_dir,
+                "meson --version".split (" "),
+                null,
+                SpawnFlags.SEARCH_PATH,
+                null,
+                out meson_version_proc_stdout,
+                out meson_version_proc_stderr,
+                out meson_version_proc_status);
+        }
 
         if (meson_version_proc_status != 0) {
             warning ("failed to get version, exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -293,20 +332,38 @@ class Vls.MesonProject : Project {
         }
 
         string[] spawn_args = {"meson", "setup", ".", root_path};
-        string proc_stdout, proc_stderr;
-        int proc_status;
+        string proc_stdout = "";
+        string proc_stderr = "";
+        int proc_status = -1;
         debug ("%sconfiguring build dir %s ...", configured_once ? "re" : "", build_dir);
         if (configured_once)
             spawn_args += "--reconfigure";
-        Process.spawn_sync (
-            build_dir,
-            spawn_args,
-            null,
-            SpawnFlags.SEARCH_PATH,
-            null,
-            out proc_stdout,
-            out proc_stderr,
-            out proc_status);
+
+        if (_scheduler != null) {
+            // C2: run spawn on worker thread to avoid blocking main loop
+            _scheduler.run_sync<void> (() => {
+                Process.spawn_sync (
+                    build_dir,
+                    spawn_args,
+                    null,
+                    SpawnFlags.SEARCH_PATH,
+                    null,
+                    out proc_stdout,
+                    out proc_stderr,
+                    out proc_status);
+                return;
+            });
+        } else {
+            Process.spawn_sync (
+                build_dir,
+                spawn_args,
+                null,
+                SpawnFlags.SEARCH_PATH,
+                null,
+                out proc_stdout,
+                out proc_stderr,
+                out proc_status);
+        }
 
         if (proc_status != 0) {
             warning ("configuration failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -794,6 +851,11 @@ class Vls.MesonProject : Project {
 
     public MesonProject (string root_path, FileCache file_cache, Cancellable? cancellable = null) throws Error {
         base (root_path, file_cache);
+        try {
+            _scheduler = new Scheduler ();
+        } catch (ThreadError e) {
+            warning ("Failed to create scheduler for MesonProject: %s", e.message);
+        }
         this.build_dir = DirUtils.make_tmp (@"vls-meson-$(str_hash (root_path))-XXXXXX");
         reconfigure_if_stale (cancellable);
     }

@@ -586,6 +586,20 @@ class Vls.Compilation : BuildTarget {
         foreach (string package in _packages)
             worker_ctx.add_external_package (package);
 
+        // Bug #1: Add generated sources to worker context (same as compile()).
+        foreach (File generated_file in _generated_sources) {
+            try {
+                if (!generated_file.query_exists ())
+                    throw new FileError.NOENT ("file does not exist");
+                worker_ctx.add_source_file (new TextDocument (worker_ctx, generated_file));
+            } catch (Error e) {
+                warning ("compile_on_worker: could not add generated file for %s: %s - %s",
+                         id, generated_file.get_uri (), e.message);
+                Vala.CodeContext.pop ();
+                throw e;
+            }
+        }
+
         // Check cancellation before starting parse — a newer edit may
         // have arrived, making this compile stale.
         if (cancellable != null)
@@ -645,7 +659,13 @@ class Vls.Compilation : BuildTarget {
         }
 
         code_context = result.code_context;
-        _source_analyzers = result.source_analyzers;
+        // Bug #3: Don't replace _source_analyzers when the worker result is empty.
+        // The worker cannot produce main-thread analyzer objects (they hold
+        // references to main-thread AST nodes), so the map is always empty.
+        // Keep the existing cache — stale entries are naturally invalidated
+        // by last_updated checks in get_analysis_for_file().
+        if (result.source_analyzers.size > 0)
+            _source_analyzers = result.source_analyzers;
         var_decls = result.var_decls;
         method_calls = result.method_calls;
         template_spans = remapped_spans;
@@ -654,9 +674,58 @@ class Vls.Compilation : BuildTarget {
         _completed_first_compile = true;
         _packages_loaded = true;
 
+        // Bug #2: Update last_fresh_content on all project sources
+        // (matches compile() line 463 — needed by CodeStyleAnalyzer).
+        foreach (var entry in _project_sources)
+            entry.value.last_fresh_content = entry.value.content;
+
+        // Bug #3: Write VAPI/GIR output on the main thread after swap.
+        // The worker context has the fresh AST; write outputs now before
+        // the old context is garbage-collected.
+        if (_output_vapi != null) {
+            DirUtils.create_with_parents (Path.get_dirname (_output_vapi), 0755);
+            var interface_writer = new Vala.CodeWriter ();
+            interface_writer.write_file (code_context, _output_vapi);
+        }
+        if (_output_internal_vapi != null) {
+            DirUtils.create_with_parents (Path.get_dirname (_output_internal_vapi), 0755);
+            var interface_writer = new Vala.CodeWriter (Vala.CodeWriterType.INTERNAL);
+            interface_writer.write_file (code_context, _output_internal_vapi);
+        }
+
+        // Remove analyses for sources no longer in the code context
+        var removed_sources = new Vala.HashSet<Vala.SourceFile> ();
+        removed_sources.add_all (code_context.get_source_files ());
+        foreach (var entry in _project_sources)
+            removed_sources.remove (entry.value);
+        foreach (var source in removed_sources)
+            _source_analyzers.unset (source, null);
+
         // Update TextDocument contexts to point to the new code_context
         foreach (var entry in _project_sources)
             entry.value.context = code_context;
+
+        // C1: Pre-create SemanticTokensAnalyzers for all project sources
+        // so the first semanticTokens request hits cache immediately.
+        // The constructor walks the AST (already parsed/resolved by check()),
+        // which is fast compared to the full compile — but doing it here
+        // keeps the per-request path zero-cost.
+        Vala.CodeContext.push (code_context);
+        foreach (var entry in _project_sources) {
+            var source = entry.value;
+            var analyses = _source_analyzers[source];
+            if (analyses == null) {
+                analyses = new HashMap<Type, AbstractAnalyzer> ();
+                _source_analyzers[source] = analyses;
+            }
+            if (!analyses.has_key (typeof (SemanticTokensAnalyzer))) {
+                var spans = template_spans.has_key (source) ? template_spans[source] : null;
+                var analyzer = new SemanticTokensAnalyzer (source, spans);
+                analyzer.last_updated = new DateTime.now ();
+                analyses[typeof (SemanticTokensAnalyzer)] = analyzer;
+            }
+        }
+        Vala.CodeContext.pop ();
     }
 
     /**

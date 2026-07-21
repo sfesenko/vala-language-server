@@ -119,6 +119,9 @@ integration_tests = [
   '/int/regression/adversarial_smoke_inverted_ref',
   '/int/perf/compile_latency',
   '/int/perf/semantic_tokens_latency',
+  '/int/perf/recompilation_after_edit',
+  '/int/perf/semantic_tokens_after_edit',
+  '/int/perf/using_directives_survive_recompile',
 ]
 
 foreach t : integration_tests
