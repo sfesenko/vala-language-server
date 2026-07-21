@@ -25,9 +25,78 @@ namespace Vls.InlayHints {
     class InlayHintHandler : Server.RequestHandler {
         private InlayHintParams p;
 
+        // Pre-compiled regex to avoid Vala parser bug with /m flag on
+        // regex literals (see cleanup branch review item #2).
+        private static Regex? foreach_regex = null;
+
         public InlayHintHandler (Server.RequestContext ctx, InlayHintParams p) {
             base (ctx);
             this.p = p;
+        }
+
+        private static Regex get_foreach_regex () {
+            if (foreach_regex == null) {
+                try {
+                    foreach_regex = new Regex ("""foreach\s*\(\s*var\s+(\w+)""", RegexCompileFlags.MULTILINE);
+                } catch (RegexError e) {
+                    warning ("Failed to compile foreach regex: %s", e.message);
+                    try {
+                        foreach_regex = new Regex ("a^");  // matches nothing
+                    } catch (RegexError e2) {
+                        error ("Cannot create fallback regex: %s", e2.message);
+                    }
+                }
+            }
+            return (!) foreach_regex;
+        }
+
+        /**
+         * Scan forward from a position to find the separator after an argument.
+         * Returns the number of characters to skip past last_arg_end to reach
+         * just past the separator (e.g. comma + whitespace).
+         * Falls back to 2 (comma + space) if scan fails.
+         */
+        private Position find_separator_end (string content, Position last_arg_end,
+                                              Vls.Foundation.LineIndex? existing_line_index = null) {
+            long idx = Vls.Foundation.byte_offset (content, last_arg_end.line, last_arg_end.character);
+            if (idx < 0 || idx >= content.length)
+                return new Position () { line = last_arg_end.line, character = last_arg_end.character + 2 };
+            // Scan forward to find the comma, skipping commas inside strings.
+            // Note: does not track nested parentheses — may find a comma inside
+            // a nested call like foo(bar(1, 2), baz). Only reached on broken AST
+            // (regex literal parser bug), so best-effort is acceptable.
+            long scan = idx;
+            bool in_string = false;
+            while (scan < content.length && content[scan] != ',') {
+                if (content[scan] == '"' && (scan == 0 || content[scan - 1] != '\\'))
+                    in_string = !in_string;
+                scan++;
+            }
+            if (scan >= content.length)
+                return new Position () { line = last_arg_end.line, character = last_arg_end.character + 2 };
+            // Found comma; skip it + any following whitespace (including newlines)
+            scan++; // skip comma
+            while (scan < content.length && (content[scan] == ' ' || content[scan] == '\t'
+                                             || content[scan] == '\n' || content[scan] == '\r'))
+                scan++;
+            // Clamp to end of content
+            if (scan > content.length)
+                scan = content.length;
+            // Convert byte offset back to line:character
+            unowned Vls.Foundation.LineIndex line_index = existing_line_index ?? new Vls.Foundation.LineIndex (content);
+            uint line = 0;
+            long offset = 0;
+            for (uint l = 0; l < line_index.line_count; l++) {
+                long line_start = line_index.byte_offset (l);
+                long line_end = (l + 1 < line_index.line_count) ? line_index.byte_offset (l + 1) : content.length;
+                if (scan >= line_start && scan <= line_end) {
+                    line = l;
+                    offset = line_start;
+                    break;
+                }
+            }
+            uint character = (uint) (scan - offset);
+            return new Position () { line = line, character = character };
         }
 
         public override void run () {
@@ -40,6 +109,9 @@ namespace Vls.InlayHints {
             }
 
             InlayHint[] hints = {};
+            // Track positions to prevent overlapping hints from multiple
+            // AST nodes at the same location.
+            var hint_positions = new HashSet<string> ();
 
         foreach (var item in query.result) {
             Vala.LocalVariable? local = null;
@@ -48,15 +120,19 @@ namespace Vls.InlayHints {
             if (item is Vala.DeclarationStatement)
                 local = ((Vala.DeclarationStatement)item).declaration as Vala.LocalVariable;
             if (local != null && local.source_reference != null
-                && !(local.initializer is Vala.ObjectCreationExpression) &&
-                local in compilation.var_decls) {
-                hints += new InlayHint () {
-                    position = new Position.from_libvala (local.source_reference.end),
-                    label = ":%s".printf (CodeHelp.get_data_type_representation (local.variable_type, null)),
-                    kind = InlayHintKind.TYPE,
-                    paddingLeft = true
-                };
-            } else if (/foreach\s*\(\s*var\s+(\w+)/m.match (representation, 0, out foreach_match)) {
+                && local in compilation.var_decls) {
+                var pos = new Position.from_libvala (local.source_reference.end);
+                var key = @"$(pos.line):$(pos.character)";
+                if (!hint_positions.contains (key)) {
+                    hint_positions.add (key);
+                    hints += new InlayHint () {
+                        position = pos,
+                        label = ":%s".printf (CodeHelp.get_data_type_representation (local.variable_type, null)),
+                        kind = InlayHintKind.TYPE,
+                        paddingLeft = true
+                    };
+                }
+            } else if (get_foreach_regex ().match (representation, 0, out foreach_match)) {
                 int start, end;
                 if (foreach_match.fetch_pos (1, out start, out end)) {
                     Vala.DataType? element_type = null;
@@ -80,27 +156,46 @@ namespace Vls.InlayHints {
                     }
 
                     var range = SymbolReferences.get_narrowed_source_reference (item.source_reference, representation, start, end);
-                    hints += new InlayHint () {
-                        position = range.end,
-                        label = ":%s".printf (CodeHelp.get_data_type_representation (element_type, null)),
-                        kind = InlayHintKind.TYPE,
-                        paddingLeft = true
-                    };
+                    var fk = @"$(range.end.line):$(range.end.character)";
+                    if (!hint_positions.contains (fk)) {
+                        hint_positions.add (fk);
+                        hints += new InlayHint () {
+                            position = range.end,
+                            label = ":%s".printf (CodeHelp.get_data_type_representation (element_type, null)),
+                            kind = InlayHintKind.TYPE,
+                            paddingLeft = true
+                        };
+                    }
                 }
             } else if (item is Vala.LambdaExpression) {
                 var lambda = (Vala.LambdaExpression)item;
                 foreach (var param in lambda.get_parameters ()) {
                     var range = new Range.from_sourceref (param.source_reference);
                     if (param.variable_type != null) {
-                        hints += new InlayHint () {
-                            position = range.start,
-                            label = CodeHelp.get_data_type_representation (param.variable_type, null),
-                            kind = InlayHintKind.PARAMETER,
-                            paddingRight = true
-                        };
+                        var pk = @"$(range.start.line):$(range.start.character)";
+                        if (!hint_positions.contains (pk)) {
+                            hint_positions.add (pk);
+                            hints += new InlayHint () {
+                                position = range.start,
+                                label = CodeHelp.get_data_type_representation (param.variable_type, null),
+                                kind = InlayHintKind.PARAMETER,
+                                paddingRight = true
+                            };
+                        }
                     }
                 }
             } else if ((item is Vala.MethodCall || item is Vala.ObjectCreationExpression) && compilation.method_calls.has_key (item)) {
+                // Bug: Vala's parser creates incorrect AST source references
+                // for method call arguments when the target is a regex literal
+                // with flags (e.g. /pattern/m.replace(...)). The flags change
+                // the literal's length, shifting all subsequent AST positions.
+                // Skip parameter name hints for regex literal calls entirely
+                // since their argument positions are unreliable.
+                if (item is Vala.MethodCall) {
+                    var mc = (Vala.MethodCall)item;
+                    if (mc.call is Vala.MemberAccess && ((Vala.MemberAccess)mc.call).inner is Vala.RegexLiteral)
+                        continue;
+                }
                 Vala.List<Vala.Parameter>? parameters = null;
                 if (item is Vala.MethodCall) {
                     var mc = (Vala.MethodCall)item;
@@ -123,6 +218,7 @@ namespace Vls.InlayHints {
                         argument_list = ((Vala.MethodCall)item).get_argument_list ();
                     else
                         argument_list = ((Vala.ObjectCreationExpression)item).get_argument_list ();
+                    Position? last_arg_end = null;
                     foreach (var arg in argument_list) {
                         if (arg.source_reference == null) {
                             args_i++;
@@ -131,6 +227,11 @@ namespace Vls.InlayHints {
                         if (args_i >= orig_param_count)
                             break;
                         if (arg is Vala.NamedArgument) {
+                            // Track position even for skipped named args so
+                            // subsequent positional args don't overlap.
+                            var named_range = new Range.from_sourceref (arg.source_reference);
+                            if (last_arg_end == null || named_range.end.compare_to (last_arg_end) > 0)
+                                last_arg_end = named_range.end;
                             args_i++;
                             continue;
                         }
@@ -149,12 +250,23 @@ namespace Vls.InlayHints {
                             continue;
                         }
                         var range = new Range.from_sourceref (arg.source_reference);
-                        hints += new InlayHint () {
-                            position = range.start,
-                            label = "%s:".printf (parameter_name),
-                            kind = InlayHintKind.PARAMETER,
-                            paddingRight = true
-                        };
+                        // Guard: if this argument's start falls within the
+                        // previous argument's text (incorrect AST source ref),
+                        // shift the hint position just after the previous arg
+                        // and the separator (comma + optional whitespace).
+                        if (last_arg_end != null && range.start.compare_to (last_arg_end) < 0)
+                            range.start = find_separator_end (ctx.file.content, last_arg_end);
+                        var pk = @"$(range.start.line):$(range.start.character)";
+                        if (!hint_positions.contains (pk)) {
+                            hint_positions.add (pk);
+                            hints += new InlayHint () {
+                                position = range.start,
+                                label = "%s:".printf (parameter_name),
+                                kind = InlayHintKind.PARAMETER,
+                                paddingRight = true
+                            };
+                        }
+                        last_arg_end = range.end;
                         args_i++;
                     }
                 }

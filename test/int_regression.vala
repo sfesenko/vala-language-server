@@ -140,3 +140,104 @@ void test_adversarial_smoke_single_dollar () {
 void test_adversarial_smoke_inverted_ref () {
     smoke_fixture (REG_INVERTED_REF_FIXTURE);
 }
+
+// Fixture mimicking doccomment.vala's replace_eval pattern with lambdas.
+// The regex + lambda argument structure triggered a crash in analyzer
+// pre-creation and hover resolution.
+const string REG_REPLACE_EVAL_FIXTURE = """using GLib;
+public class DocComment {
+    public string body;
+    public void render () {
+        body = /^(=+) (.+?) (?P=prefix)$/m.replace_eval (body, body.length, 0, 0, (match_info, result) => {
+            string prefix = match_info.fetch_named ("prefix");
+            string heading = match_info.fetch (2);
+            result.append (string.nfill (prefix.length, '#'));
+            result.append_c (' ');
+            result.append (heading);
+            return false;
+        });
+        body = /^@param ([A-Za-z_]\\w*)[\\t\\f\\v ]+(.+)$/m.replace_eval (body, body.length, 0, 0, (match_info, result) => {
+            string param_name = match_info.fetch (1);
+            result.append (param_name);
+            return false;
+        });
+    }
+}
+""";
+
+void test_adversarial_smoke_replace_eval () {
+    var s = setup_session (REG_REPLACE_EVAL_FIXTURE, "replace_eval_fixture.vala");
+    var h = new Helpers ();
+    bool crashed = false;
+    string[] methods = {
+        "textDocument/hover",
+        "textDocument/documentSymbol",
+        "textDocument/semanticTokens/full",
+        "textDocument/codeLens",
+        "textDocument/codeAction",
+    };
+    foreach (var method in methods) {
+        try {
+            Variant? r;
+            if (method == "textDocument/hover" || method == "textDocument/documentSymbol") {
+                s.client.call (method, h.build_dict (
+                    textDocument: h.build_dict (uri: new Variant.string (s.uri)),
+                    position: h.build_dict (line: new Variant.int32 (3), character: new Variant.int32 (10))
+                ), null, out r);
+            } else {
+                s.client.call (method, h.build_dict (
+                    textDocument: h.build_dict (uri: new Variant.string (s.uri))
+                ), null, out r);
+            }
+        } catch (IOError e) {
+            crashed = true;
+        } catch (Error e) {
+        }
+    }
+    assert (!crashed);
+    teardown_session (s);
+}
+
+// Bug #330: Enum with base type methods (GLib.Enum methods like to_string)
+const string REG_ENUM_FIXTURE = """using GLib;
+public class Foo {
+    public void bar () {
+        var e = TestEnum.VAL_A;
+    }
+}
+public enum TestEnum {
+    VAL_A,
+    VAL_B
+}
+""";
+
+void test_enum_base_type_completion () {
+    smoke_fixture (REG_ENUM_FIXTURE);
+}
+
+// Bug #300: Struct inheritance — ensure completions on derived struct don't crash
+const string REG_STRUCT_INHERIT_FIXTURE = """public struct Base {
+    public int base_val;
+}
+public struct Derived : Base {
+    public int derived_val;
+}
+""";
+
+void test_struct_inheritance_completion () {
+    smoke_fixture (REG_STRUCT_INHERIT_FIXTURE);
+}
+
+// Bug #334: Override completions when class already has methods
+const string REG_OVERRIDE_FIXTURE = """public abstract class Base {
+    public abstract void do_something ();
+}
+public class Derived : Base {
+    public override void do_something () {}
+    public void extra () {}
+}
+""";
+
+void test_override_completion_with_existing_methods () {
+    smoke_fixture (REG_OVERRIDE_FIXTURE);
+}

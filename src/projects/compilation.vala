@@ -220,6 +220,18 @@ class Vls.Compilation : BuildTarget {
         if (ignored_args > 0)
             debug ("Compilation(%s): ignored %d arguments", id, ignored_args);
 
+        // Bug #293: if no --vapidir was provided, add default system VAPI paths
+        // so that the DefaultProject can find system packages like Posix.
+        if (_vapi_dirs.size == 0) {
+            _vapi_dirs.add ("/usr/share/vala/vapi");
+            _vapi_dirs.add ("/usr/local/share/vala/vapi");
+            // macOS Homebrew (Apple Silicon)
+            _vapi_dirs.add ("/opt/homebrew/share/vala/vapi");
+            var home_vapi = GLib.Environment.get_home_dir ();
+            if (home_vapi != null)
+                _vapi_dirs.add (Path.build_filename (home_vapi, ".local", "share", "vala", "vapi"));
+        }
+
         for (int i = 0; i < sources.length; i++) {
             unowned string source = sources[i];
             unowned string? content = sources_content != null ? sources_content[i] : null;
@@ -704,28 +716,6 @@ class Vls.Compilation : BuildTarget {
         // Update TextDocument contexts to point to the new code_context
         foreach (var entry in _project_sources)
             entry.value.context = code_context;
-
-        // C1: Pre-create SemanticTokensAnalyzers for all project sources
-        // so the first semanticTokens request hits cache immediately.
-        // The constructor walks the AST (already parsed/resolved by check()),
-        // which is fast compared to the full compile — but doing it here
-        // keeps the per-request path zero-cost.
-        Vala.CodeContext.push (code_context);
-        foreach (var entry in _project_sources) {
-            var source = entry.value;
-            var analyses = _source_analyzers[source];
-            if (analyses == null) {
-                analyses = new HashMap<Type, AbstractAnalyzer> ();
-                _source_analyzers[source] = analyses;
-            }
-            if (!analyses.has_key (typeof (SemanticTokensAnalyzer))) {
-                var spans = template_spans.has_key (source) ? template_spans[source] : null;
-                var analyzer = new SemanticTokensAnalyzer (source, spans);
-                analyzer.last_updated = new DateTime.now ();
-                analyses[typeof (SemanticTokensAnalyzer)] = analyzer;
-            }
-        }
-        Vala.CodeContext.pop ();
     }
 
     /**
@@ -750,23 +740,26 @@ class Vls.Compilation : BuildTarget {
                 debug ("[SEMTOK] get_analysis_for_file: no cached %s for %s, creating",
                        typeof (T).name (), source.filename);
             Vala.CodeContext.push (code_context);
-            if (typeof (T) == typeof (CodeStyleAnalyzer)) {
-                analysis = new CodeStyleAnalyzer (source);
-            } else if (typeof (T) == typeof (SymbolEnumerator)) {
-                analysis = new SymbolEnumerator (source);
-            } else if (typeof (T) == typeof (CodeLensAnalyzer)) {
-                analysis = new CodeLensAnalyzer (source);
-            } else if (typeof (T) == typeof (SemanticTokensAnalyzer)) {
-                analysis = new SemanticTokensAnalyzer (source, template_spans.get (source));
-            }
+            try {
+                if (typeof (T) == typeof (CodeStyleAnalyzer)) {
+                    analysis = new CodeStyleAnalyzer (source);
+                } else if (typeof (T) == typeof (SymbolEnumerator)) {
+                    analysis = new SymbolEnumerator (source);
+                } else if (typeof (T) == typeof (CodeLensAnalyzer)) {
+                    analysis = new CodeLensAnalyzer (source);
+                } else if (typeof (T) == typeof (SemanticTokensAnalyzer)) {
+                    analysis = new SemanticTokensAnalyzer (source, template_spans.get (source));
+                }
 
-            if (analysis != null) {
-                analysis.last_updated = new DateTime.now ();
-                analyses[typeof (T)] = analysis;
-                debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
-                       typeof (T).name (), analysis.last_updated.to_string ());
+                if (analysis != null) {
+                    analysis.last_updated = new DateTime.now ();
+                    analyses[typeof (T)] = analysis;
+                    debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
+                           typeof (T).name (), analysis.last_updated.to_string ());
+                }
+            } finally {
+                Vala.CodeContext.pop ();
             }
-            Vala.CodeContext.pop ();
         } else {
             analysis = analyses[typeof (T)];
             debug ("[SEMTOK] get_analysis_for_file: using cached %s for %s",
@@ -781,7 +774,7 @@ class Vls.Compilation : BuildTarget {
         string? filename = path != null ? Util.realpath (path) : null;
         string uri = file.get_uri ();
         foreach (var source_file in code_context.get_source_files ()) {
-            if (filename != null && Util.realpath (source_file.filename) == filename || source_file.filename == uri) {
+            if ((filename != null && Util.realpath (source_file.filename) == filename) || source_file.filename == uri) {
                 input_source = source_file;
                 return true;
             }

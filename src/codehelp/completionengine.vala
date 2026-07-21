@@ -20,6 +20,8 @@ using Lsp;
 using Gee;
 
 namespace Vls.CompletionEngine {
+    const long MAX_BLOCK_SCAN_CHARS = 10000;
+
     /**
      * Extract the text from the start of the current line to the cursor position.
      */
@@ -31,6 +33,81 @@ namespace Vls.CompletionEngine {
             prefix.append_c (doc.content[i]);
         }
         return prefix.str;
+    }
+
+    /**
+     * Check if the cursor is inside a comment (line or block).
+     * Scans backwards from the cursor position for comment markers,
+     * handling basic string quoting to reduce false positives.
+     */
+    bool cursor_in_comment (string content, Position pos) {
+        long idx = Vls.Foundation.byte_offset (content, pos.line, pos.character);
+        if (idx <= 0)
+            return false;
+
+        // Check for line comment: scan backwards on this line for `//`
+        long line_start = idx;
+        while (line_start > 0 && content[line_start - 1] != '\n')
+            line_start--;
+
+        bool in_string = false;
+        bool in_triple_string_line = false;
+        for (long i = line_start; i < idx - 1; i++) {
+            // Check for triple-quoted string delimiter
+            if (content[i] == '"' && i + 2 < content.length && content[i + 1] == '"' && content[i + 2] == '"') {
+                in_triple_string_line = !in_triple_string_line;
+                i += 2; // skip the next two quotes
+                continue;
+            }
+            // Toggle single-quoted string state on unescaped `"`
+            if (!in_triple_string_line && content[i] == '"' && (i == line_start || content[i - 1] != '\\'))
+                in_string = !in_string;
+            if (!in_string && !in_triple_string_line && content[i] == '/' && content[i + 1] == '/')
+                return true;
+        }
+
+        // Check for block comment: scan backwards for `/*` without `*/` in between.
+        // Track string quoting so `/*` inside a string doesn't produce false positive.
+        // Cap scan to avoid O(n) on large files.
+        int comment_depth = 0;
+        bool in_block_string = false;
+        bool in_triple_string = false;
+        for (long i = idx - 1, scanned = 0; i >= 0 && scanned < MAX_BLOCK_SCAN_CHARS; i--, scanned++) {
+            // Check for triple-quoted string delimiter (scan backward, so detect both
+            // start delimiters at i,i+1,i+2 and end delimiters at i-2,i-1,i).
+            if (content[i] == '"') {
+                bool is_triple = false;
+                if (i + 2 < content.length && content[i + 1] == '"' && content[i + 2] == '"') {
+                    is_triple = true;
+                    i += 2; // will be decremented by loop, net skip = +1
+                    scanned += 2;
+                } else if (i >= 2 && content[i - 1] == '"' && content[i - 2] == '"') {
+                    is_triple = true;
+                    i -= 2; // will be decremented by loop, net skip = -3
+                    scanned += 2;
+                }
+                if (is_triple) {
+                    in_triple_string = !in_triple_string;
+                    continue;
+                }
+            }
+            // Toggle single-quoted string state on unescaped `"`
+            if (!in_triple_string && content[i] == '"' && (i == 0 || content[i - 1] != '\\')) {
+                in_block_string = !in_block_string;
+                continue;
+            }
+            if (in_block_string || in_triple_string)
+                continue;
+            if (i < idx - 1 && content[i] == '*' && content[i + 1] == '/') {
+                comment_depth++;
+            } else if (content[i] == '/' && i + 1 < content.length && content[i + 1] == '*') {
+                if (comment_depth > 0)
+                    comment_depth--;
+                else
+                    return true;
+            }
+        }
+        return comment_depth > 0;
     }
 
     class CompletionHandler : Server.RequestHandler {
@@ -53,6 +130,14 @@ namespace Vls.CompletionEngine {
             Compilation compilation = ctx.compilation;
             Position pos = this.pos;
             CompletionContext? completion_context = this.completion_context;
+
+            // Bug #329: if cursor is in a comment, return empty completions
+            // immediately to avoid NO_RESULT_CALLBACK_FOUND errors when typing
+            // `.` or other completion triggers inside comments.
+            if (cursor_in_comment (doc.content, pos)) {
+                finish (client, id, new HashSet<CompletionItem> ());
+                return;
+            }
 
             bool is_pointer_access = false;
             long idx = (long) Vls.Foundation.byte_offset (doc.content, pos.line, pos.character);
@@ -179,6 +264,29 @@ namespace Vls.CompletionEngine {
                                             (Vala.Class) nearest_symbol, best_scope,
                                             results.second, completions, prefix);
                 showing_override_suggestions = !completions.is_empty;
+            } else if (nearest_symbol is Vala.Method) {
+                // Bug #334: when cursor is at class level but scope resolves
+                // to a method, walk up to find the enclosing class for override
+                // completions.
+                var enclosing = nearest_symbol.parent_symbol;
+                while (enclosing != null && !(enclosing is Vala.Class))
+                    enclosing = enclosing.parent_symbol;
+                if (enclosing != null) {
+                    var cl = (Vala.Class) enclosing;
+                    var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols (cl);
+                    list_implementable_symbols (lang_serv, project, compilation, doc,
+                                                cl, best_scope,
+                                                results.second, completions, prefix);
+                    showing_override_suggestions = !completions.is_empty;
+                }
+                // Also check for virtual methods not overridden (ObjectTypeSymbol)
+                if (enclosing is Vala.ObjectTypeSymbol) {
+                    list_implementable_symbols (lang_serv, project, compilation, doc,
+                                                (Vala.ObjectTypeSymbol) enclosing, best_scope,
+                                                CodeHelp.gather_base_virtual_symbols_not_overridden
+                                                    ((Vala.ObjectTypeSymbol) enclosing),
+                                                completions, prefix);
+                }
             }
             if (nearest_symbol is Vala.ObjectTypeSymbol) {
                 list_implementable_symbols (lang_serv, project, compilation, doc,
@@ -1068,12 +1176,34 @@ namespace Vls.CompletionEngine {
                          CompletionItemKind.Constant,
                          lang_serv.get_symbol_documentation (project, constant_sym)));
                 }
-                foreach (var value_sym in enum_sym.get_values ())
-                    completions.add (new CompletionItem.from_symbol
-                        (type, value_sym, current_scope,
-                         CompletionItemKind.EnumMember,
-                         lang_serv.get_symbol_documentation (project, value_sym)));
             }
+
+            // Bug #330: Add completions from base enum type (e.g. GLib.Enum)
+            Vala.TypeSymbol? base_enum_sym = null;
+            if (!is_instance) {
+                var topmost = get_topmost_scope (current_scope);
+                var glib_ns = topmost.lookup ("GLib");
+                if (glib_ns != null) {
+                    if (glib_ns.scope != null) {
+                        var base_enum_sym_tmp = glib_ns.scope.lookup ("Enum");
+                        if (base_enum_sym_tmp is Vala.TypeSymbol)
+                            base_enum_sym = (Vala.TypeSymbol) base_enum_sym_tmp;
+                    }
+                }
+            }
+            if (base_enum_sym != null && base_enum_sym != type_symbol
+                && !seen_type_symbols.contains (base_enum_sym)) {
+                seen_type_symbols.add (base_enum_sym);
+                add_completions_for_type (lang_serv, project, code_style,
+                    type, base_enum_sym, completions,
+                    current_scope, in_oce, false, seen_props, seen_type_symbols);
+            }
+
+            foreach (var value_sym in enum_sym.get_values ())
+                completions.add (new CompletionItem.from_symbol
+                    (type, value_sym, current_scope,
+                     CompletionItemKind.EnumMember,
+                     lang_serv.get_symbol_documentation (project, value_sym)));
         } else if (type_symbol is Vala.ErrorDomain) {
             /**
              * Get all the members of the error domain, such as the error
@@ -1111,7 +1241,10 @@ namespace Vls.CompletionEngine {
 
                 Vala.Symbol? gerror_sym = topmost.lookup ("GLib");
                 if (gerror_sym != null) {
-                    gerror_sym = gerror_sym.scope.lookup ("Error");
+                    if (gerror_sym.scope != null)
+                        gerror_sym = gerror_sym.scope.lookup ("Error");
+                    else
+                        gerror_sym = null;
                     if (gerror_sym == null || !(gerror_sym is Vala.Class))
                         warning ("GLib.Error not found");
                     else
@@ -1169,6 +1302,19 @@ namespace Vls.CompletionEngine {
                         (type, constant_sym, current_scope,
                          CompletionItemKind.Constant,
                          lang_serv.get_symbol_documentation (project, constant_sym)));
+                }
+            }
+
+            // Bug #300: traverse base struct members
+            var base_struct_type = struct_sym.base_type;
+            if (base_struct_type != null) {
+                var base_type_sym = base_struct_type.type_symbol;
+                if (base_type_sym != null && base_type_sym != type_symbol
+                    && !seen_type_symbols.contains (base_type_sym)) {
+                    seen_type_symbols.add (base_type_sym);
+                    add_completions_for_type (lang_serv, project, code_style,
+                        type, base_type_sym, completions,
+                        current_scope, in_oce, is_instance, seen_props, seen_type_symbols);
                 }
             }
         } else if (type_symbol is Vala.TypeParameter) {
@@ -1287,7 +1433,7 @@ namespace Vls.CompletionEngine {
         Vala.Scope topmost = get_topmost_scope (scope);
         Vala.Symbol? glib_ns = topmost.lookup ("GLib");
         // don't show async members if we don't have GAsyncResult available (included in gio-2.0)
-        if (glib_ns != null && glib_ns.scope.lookup ("AsyncResult") != null) {
+        if (glib_ns != null && glib_ns.scope != null && glib_ns.scope.lookup ("AsyncResult") != null) {
             completions.add_all_array(new CompletionItem []{
                 new CompletionItem.from_symbol (instance_type, m, scope, CompletionItemKind.Method,
                     new DocComment ("Begin asynchronous operation"), "begin") {

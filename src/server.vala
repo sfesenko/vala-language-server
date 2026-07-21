@@ -470,12 +470,28 @@ class Vls.Server : Jsonrpc.Server {
             warning ("could not enumerate root dir - %s", e.message);
         }
 
+        // Bug #290: if meson.build not found in root, walk parent directories
+        if (!meson_file.query_exists (cancellable)) {
+            var parent = root_dir.get_parent ();
+            while (parent != null) {
+                var candidate = parent.get_child ("meson.build");
+                if (candidate.query_exists (cancellable)) {
+                    debug ("[initialize] found meson.build in parent: %s", Util.project_path (candidate.get_path ()));
+                    meson_file = candidate;
+                    break;
+                }
+                parent = parent.get_parent ();
+            }
+        }
+
         var new_projects = new ArrayList<Project> ();
         Project? backend_project = null;
         // TODO: autotools, make(?), cmake(?)
         if (meson_file.query_exists (cancellable)) {
             try {
-                backend_project = new MesonProject (root_path, file_cache, cancellable);
+                // If meson.build was found in a parent directory, use that
+                string project_root = meson_file.get_parent ().get_path ();
+                backend_project = new MesonProject (project_root, file_cache, cancellable);
             } catch (Error e) {
                 if (!(e is ProjectError.VERSION_UNSUPPORTED)) {
                     show_message (client, @"Failed to initialize Meson project - $(e.message)", MessageType.Error);
@@ -789,8 +805,16 @@ protected void reply_error (int code, string message) {
                     documentation.add_package_from_source_file (pkg);
                 // show diagnostics for the newly-opened file
                 request_context_update (client);
+                // Bug #154: warn when a .vala/.gs file falls to default project
+                // but real project targets exist (file should be tracked).
+                if ((uri.has_suffix (".vala") || uri.has_suffix (".gs"))
+                    && projects.size () > 0) {
+                    show_message (client,
+                        "File is not listed in any build target. Add it to meson.build for full code intelligence.",
+                        MessageType.Warning);
+                }
             } catch (Error e) {
-                warning ("[textDocumnt/didOpen] failed to open %s - %s", Util.project_uri (uri), e.message);
+                warning ("[textDocument/didOpen] failed to open %s - %s", Util.project_uri (uri), e.message);
             }
         }
 
@@ -902,17 +926,18 @@ protected void reply_error (int code, string message) {
 
                 if (!(source_file is TextDocument)) {
                     warning ("[textDocument/didChange] Ignoring change to system file");
-                    return;
+                    continue;
                 }
 
                 var source = (TextDocument) source_file;
                 if (source.version >= version) {
                     warning (@"[textDocument/didChange] rejecting outdated version of $(Util.project_uri (uri))");
-                    return;
+                    continue;
                 }
 
                 if (source_file.content == null) {
-                    error ("[textDocument/didChange] source content is null!");
+                    warning ("[textDocument/didChange] source content is null!");
+                    continue;
                 }
 
                 // update the document

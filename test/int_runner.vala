@@ -70,6 +70,10 @@ int main (string[] args) {
     Test.add_func ("/int/regression/adversarial_smoke_template_string", test_adversarial_smoke_template_string);
     Test.add_func ("/int/regression/adversarial_smoke_single_dollar", test_adversarial_smoke_single_dollar);
     Test.add_func ("/int/regression/adversarial_smoke_inverted_ref", test_adversarial_smoke_inverted_ref);
+    Test.add_func ("/int/regression/adversarial_smoke_replace_eval", test_adversarial_smoke_replace_eval);
+    Test.add_func ("/int/regression/enum_base_type_completion", test_enum_base_type_completion);
+    Test.add_func ("/int/regression/struct_inheritance_completion", test_struct_inheritance_completion);
+    Test.add_func ("/int/regression/override_completion_with_existing_methods", test_override_completion_with_existing_methods);
     Test.add_func ("/int/perf/compile_latency", test_perf_compile_latency);
     Test.add_func ("/int/perf/semantic_tokens_latency", test_perf_semantic_tokens_latency);
     Test.add_func ("/int/perf/recompilation_after_edit", test_perf_recompilation_after_edit);

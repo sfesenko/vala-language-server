@@ -36,7 +36,12 @@ namespace Vls.Formatter {
         var launcher = new SubprocessLauncher (SubprocessFlags.STDERR_PIPE | SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDIN_PIPE);
         launcher.set_environ (Environ.get ());
         var args = get_uncrustify_args (source, options, analyzed_style, cancellable);
-        Subprocess subprocess = launcher.spawnv (args);
+        Subprocess subprocess;
+        try {
+            subprocess = launcher.spawnv (args);
+        } catch (Error e) {
+            throw new FormattingError.READ ("Failed to launch uncrustify: %s", e.message);
+        }
         string stdin_buf;
         if (range == null) {
             stdin_buf = source.content;
@@ -97,7 +102,7 @@ namespace Vls.Formatter {
         conf["nl_end_of_file_min"] = "%d".printf (options.trimFinalNewlines ? 1 : 0);
         conf["output_tab_size"] = "%u".printf (options.tabSize);
         conf["pos_arith"] = "lead";
-        conf["indent_paren_nl"] = "true";
+        conf["indent_paren_nl"] = "false";
         conf["indent_comma_brace"] = "1";
         conf["indent_columns"] = "%u".printf (options.tabSize);
         conf["indent_align_string"] = "true";
@@ -251,7 +256,6 @@ namespace Vls.Formatter {
         conf["nl_before_throw"] = "remove";
         conf["nl_namespace_brace"] = "remove";
         conf["nl_class_brace"] = "remove";
-        conf["nl_class_init_args"] = "remove";
         conf["nl_class_init_args"] = "remove";
         conf["nl_func_type_name"] = "remove";
         conf["nl_func_type_name_class"] = "remove";

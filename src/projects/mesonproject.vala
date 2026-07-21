@@ -28,6 +28,7 @@ class Vls.MesonProject : Project {
     private bool configured_once;
     private bool requires_general_build;
     private Scheduler _scheduler;
+    private bool _warned_sync_fallback;
 
     /**
      * Substitute special arguments like `@INPUT@` and `@OUTPUT@` as they
@@ -243,6 +244,10 @@ class Vls.MesonProject : Project {
                         return stdout_str;
                     });
                 } else {
+                    if (!_warned_sync_fallback) {
+                        warning ("Scheduler unavailable — Meson spawn will block main thread");
+                        _warned_sync_fallback = true;
+                    }
                     Process.spawn_sync (
                         build_dir,
                         spawn_args,
@@ -297,6 +302,10 @@ class Vls.MesonProject : Project {
                 return stdout_str;
             });
         } else {
+            if (!_warned_sync_fallback) {
+                warning ("Scheduler unavailable — Meson spawn will block main thread");
+                _warned_sync_fallback = true;
+            }
             Process.spawn_sync (
                 build_dir,
                 "meson --version".split (" "),
@@ -354,6 +363,10 @@ class Vls.MesonProject : Project {
                 return;
             });
         } else {
+            if (!_warned_sync_fallback) {
+                warning ("Scheduler unavailable — Meson spawn will block main thread");
+                _warned_sync_fallback = true;
+            }
             Process.spawn_sync (
                 build_dir,
                 spawn_args,
@@ -790,7 +803,7 @@ class Vls.MesonProject : Project {
 
             foreach (Json.Node elem_node in bsf_json_root.get_array ().get_elements ()) {
                 string? path = elem_node.get_string ();
-                if (path != null && (path.has_suffix ("meson.build") || path.has_suffix ("meson_options.txt"))) {
+                if (path != null && (path.has_suffix ("meson.build") || path.has_suffix ("meson_options.txt") || path.has_suffix ("meson.options"))) {
                     var build_file = File.new_for_path ((!) path);
                     if (!meson_build_files.has_key (build_file)) {
                         debug ("obtaining a new file monitor for %s ...",
@@ -827,17 +840,41 @@ class Vls.MesonProject : Project {
 
     public override void build_if_stale (GLib.Cancellable? cancellable = null) throws Error {
         if (requires_general_build) {
-            int proc_status;
-            string proc_stdout, proc_stderr;
+            int proc_status = -1;
+            string proc_stdout = "";
+            string proc_stderr = "";
 
-            Process.spawn_sync (build_dir,
-                                {"meson", "compile"},
-                                null,
-                                SpawnFlags.SEARCH_PATH,
-                                null,
-                                out proc_stdout,
-                                out proc_stderr,
-                                out proc_status);
+            if (_scheduler != null) {
+                // C2: run spawn on worker thread to avoid blocking main loop
+                proc_stdout = _scheduler.run_sync<string> (() => {
+                    string stdout_str;
+                    int status;
+                    Process.spawn_sync (
+                        build_dir,
+                        {"meson", "compile"},
+                        null,
+                        SpawnFlags.SEARCH_PATH,
+                        null,
+                        out stdout_str,
+                        null,
+                        out status);
+                    proc_status = status;
+                    return stdout_str;
+                });
+            } else {
+                if (!_warned_sync_fallback) {
+                    warning ("Scheduler unavailable — Meson spawn will block main thread");
+                    _warned_sync_fallback = true;
+                }
+                Process.spawn_sync (build_dir,
+                                    {"meson", "compile"},
+                                    null,
+                                    SpawnFlags.SEARCH_PATH,
+                                    null,
+                                    out proc_stdout,
+                                    out proc_stderr,
+                                    out proc_status);
+            }
 
             if (proc_status != 0) {
                 warning ("`meson compile' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -865,16 +902,6 @@ class Vls.MesonProject : Project {
     }
 
     private void file_changed_event (File src, File? dest, FileMonitorEvent event_type) {
-        if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            debug ("watched file %s had an attribute changed", Util.project_path (src.get_path ()));
-            build_files_have_changed = true;
-            changed ();
-        }
-        if (FileMonitorEvent.CHANGED in event_type) {
-            debug ("watched file %s was changed", Util.project_path (src.get_path ()));
-            build_files_have_changed = true;
-            changed ();
-        }
         if (FileMonitorEvent.DELETED in event_type) {
             debug ("watched file %s was deleted", Util.project_path (src.get_path ()));
             // remove this file monitor since the file was deleted
@@ -883,6 +910,14 @@ class Vls.MesonProject : Project {
                 file_monitor.cancel ();
                 file_monitor.changed.disconnect (file_changed_event);
             }
+            build_files_have_changed = true;
+            changed ();
+        } else if (FileMonitorEvent.CHANGED in event_type) {
+            debug ("watched file %s was changed", Util.project_path (src.get_path ()));
+            build_files_have_changed = true;
+            changed ();
+        } else if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
+            debug ("watched file %s had an attribute changed", Util.project_path (src.get_path ()));
             build_files_have_changed = true;
             changed ();
         }

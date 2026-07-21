@@ -112,8 +112,7 @@ class Vls.InlayHintNodes : Vala.CodeVisitor {
     }
 
     public override void visit_local_variable (LocalVariable local) {
-        if (!(local.initializer is CastExpression || local.initializer is ObjectCreationExpression || local.initializer is ArrayCreationExpression) &&
-            local.variable_type is VarType)
+        if (local.variable_type is VarType)
             declarations.add (local);
         local.accept_children (this);
     }
