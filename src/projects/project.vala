@@ -43,10 +43,12 @@ abstract class Vls.Project : Object {
      * rebuilding dependent targets.
      */
     protected FileCache file_cache;
+    public AnalysisCache analysis_cache { get; private set; }
 
     protected Project (string root_path, FileCache file_cache) {
         this.root_path = root_path;
         this.file_cache = file_cache;
+        this.analysis_cache = new AnalysisCache ();
     }
 
     /**

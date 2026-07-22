@@ -94,6 +94,7 @@ namespace Vls.SemanticTokensHandler {
                 result_id, old.data, data);
             try {
                 client.reply (id, result, Server.cancellable);
+                Server.cleanup_request (server, id);
             } catch (Error e) {
                 debug (@"[$method] failed to reply to client: $(e.message)");
             }
@@ -106,6 +107,7 @@ namespace Vls.SemanticTokensHandler {
         var result = Vls.Foundation.SemanticTokensResponseBuilder.build_full (result_id, data);
         try {
             client.reply (id, result, Server.cancellable);
+            Server.cleanup_request (server, id);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
@@ -164,95 +166,5 @@ namespace Vls.SemanticTokensHandler {
             var data = filter_to_range (tokens.get_tokens (), range);
             reply_with_tokens (ctx.server, ctx.client, ctx.method, ctx.id, data, null, doc_uri);
         }
-    }
-
-    void full (Server server, Jsonrpc.Client client, string method,
-                Variant id, Variant @params) {
-        var p = Util.parse_variant<SemanticTokensParams> (@params);
-        debug ("[SEMTOK] full request: %s",
-               Util.project_uri (p.textDocument.uri));
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new SemanticTokensFullHandler (ctx, p.textDocument.uri);
-                handler.run ();
-            });
-        });
-    }
-
-    void delta (Server server, Jsonrpc.Client client, string method,
-                Variant id, Variant @params) {
-        var p = Util.parse_variant<SemanticTokensDeltaParams> (@params);
-        debug ("[SEMTOK] delta request: uri=%s, prev_id=%s",
-               Util.project_uri (p.textDocument.uri), p.previousResultId ?? "null");
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new SemanticTokensDeltaHandler (ctx, p.textDocument.uri, p.previousResultId);
-                handler.run ();
-            });
-        });
-    }
-
-    void range (Server server, Jsonrpc.Client client, string method,
-                Variant id, Variant @params) {
-        var p = Util.parse_variant<SemanticTokensRangeParams> (@params);
-        debug ("[SEMTOK] range request: %s",
-               Util.project_uri (p.textDocument.uri));
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Compilation compilation;
-            Project project;
-            Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-            if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new SemanticTokensRangeHandler (ctx, p.textDocument.uri, p.range);
-                handler.run ();
-            });
-        });
     }
 }

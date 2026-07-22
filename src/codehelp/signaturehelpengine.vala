@@ -29,7 +29,7 @@ namespace Vls.SignatureHelpEngine {
         }
 
         public override void run () {
-            Server lang_serv = ctx.server;
+            Server.ServiceProvider lang_serv = ctx.services;
             Project project = ctx.project;
             Jsonrpc.Client client = ctx.client;
             Variant id = ctx.id;
@@ -64,6 +64,7 @@ namespace Vls.SignatureHelpEngine {
         if (signatures.is_empty) {
             lang_serv.wait_for_context_update (id, request_cancelled => {
                 if (request_cancelled) {
+                    Server.cleanup_request (lang_serv.server, id);
                     Server.reply_null (id, client, method);
                     return;
                 }
@@ -74,19 +75,21 @@ namespace Vls.SignatureHelpEngine {
                                                 doc, compilation, pos,
                                                 signatures, ref active_param);
 
-                if (!signatures.is_empty)
-                    finish (client, id, signatures, active_param);
-                else
+                if (!signatures.is_empty) {
+                    finish (lang_serv.server, client, id, signatures, active_param);
+                } else {
+                    Server.cleanup_request (lang_serv.server, id);
                     Server.reply_null (id, client, method);
+                }
                 Vala.CodeContext.pop ();
             }, compilation);
         } else {
-            finish (client, id, signatures, active_param);
+            finish (lang_serv.server, client, id, signatures, active_param);
         }
         }
     }
 
-    void show_help (Server lang_serv, Project project,
+    void show_help (Server.ServiceProvider lang_serv, Project project,
                     string method, Vala.CodeNode result, Vala.Scope scope,
                     Compilation compilation,
                     Collection<SignatureInformation> signatures,
@@ -261,7 +264,7 @@ namespace Vls.SignatureHelpEngine {
         }
     }
 
-    void show_help_with_updated_context (Server lang_serv, Project project,
+    void show_help_with_updated_context (Server.ServiceProvider lang_serv, Project project,
                                          string method,
                                          Vala.SourceFile doc, Compilation compilation,
                                          Position pos,
@@ -306,12 +309,13 @@ namespace Vls.SignatureHelpEngine {
         show_help (lang_serv, project, method, result, scope, compilation, signatures, ref active_param);
     }
 
-    void finish (Jsonrpc.Client client, Variant id, Collection<SignatureInformation> signatures, int active_param) {
+    void finish (Server server, Jsonrpc.Client client, Variant id, Collection<SignatureInformation> signatures, int active_param) {
         // debug ("sending with active_param = %d", active_param);
         Server.reply_object (client, id, new SignatureHelp () {
             signatures = signatures,
             activeParameter = active_param
         });
+        Server.cleanup_request (server, id);
     }
 
     Vala.List<Vala.Parameter>? generate_parameters_for_printf_method (Vala.Method method,

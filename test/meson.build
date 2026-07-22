@@ -29,6 +29,7 @@ integration_src = files([
   'int_golden.vala',
   'int_regression.vala',
   'int_perf.vala',
+  'int_cancellation.vala',
 ])
 
 int_exe = executable('vls-int-test',
@@ -126,6 +127,8 @@ integration_tests = [
   '/int/perf/recompilation_after_edit',
   '/int/perf/semantic_tokens_after_edit',
   '/int/perf/using_directives_survive_recompile',
+  '/int/cancellation/rapid_edits_recover',
+  '/int/cancellation/rapid_cancel',
 ]
 
 foreach t : integration_tests

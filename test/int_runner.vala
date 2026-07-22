@@ -79,5 +79,7 @@ int main (string[] args) {
     Test.add_func ("/int/perf/recompilation_after_edit", test_perf_recompilation_after_edit);
     Test.add_func ("/int/perf/semantic_tokens_after_edit", test_perf_semantic_tokens_after_edit);
     Test.add_func ("/int/perf/using_directives_survive_recompile", test_perf_using_directives_survive_recompile);
+    Test.add_func ("/int/cancellation/rapid_edits_recover", test_rapid_edits_recover);
+    Test.add_func ("/int/cancellation/rapid_cancel", test_rapid_cancel);
     return Test.run ();
 }

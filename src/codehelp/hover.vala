@@ -154,15 +154,17 @@ namespace Vls.HoverHandler {
 
         Compilation compilation;
         Project project;
-        Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
+        Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
             return;
         }
 
-        server.wait_for_context_update (id, request_cancelled => {
+        server.context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                Server.cleanup_request (server, id);
                 Server.reply_null (id, client, method);
                 return;
             }

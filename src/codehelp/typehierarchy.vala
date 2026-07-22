@@ -146,33 +146,6 @@ namespace Vls.TypeHierarchy {
         }
     }
 
-    void prepare_type_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        Project project;
-        Compilation compilation;
-        var doc = server.find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project, p.position);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new PrepareTypeHierarchyHandler (ctx, p);
-                handler.run ();
-            });
-        }, compilation);
-    }
-
     class ShowTypeHierarchyHandler : Server.RequestHandler {
         private TypeHierarchyItem item;
         private bool supertypes;
@@ -204,33 +177,5 @@ namespace Vls.TypeHierarchy {
                 debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
             }
         }
-    }
-
-    void show_type_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params, bool supertypes) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<TypeHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = server.find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new ShowTypeHierarchyHandler (ctx, item, supertypes);
-                handler.run ();
-            });
-        }, compilation);
     }
 }

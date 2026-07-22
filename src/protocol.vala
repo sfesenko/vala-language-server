@@ -34,7 +34,7 @@ namespace Lsp {
         public virtual Json.Node serialize_property (string name, Value val, ParamSpec pspec) {
             return default_serialize_property (name, val, pspec);
         }
-        public bool deserialize_property (string name, out Value val, ParamSpec pspec, Json.Node node) {
+        public virtual bool deserialize_property (string name, out Value val, ParamSpec pspec, Json.Node node) {
             return default_deserialize_property (name, out val, pspec, node);
         }
     }
@@ -786,7 +786,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
             this.textDocument = text_document;
         }
 
-        public Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "edits")
                 return default_serialize_property (property_name, value, pspec);
 
@@ -811,7 +811,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
          */
         public Array<Variant>? arguments { get; set; }
 
-        public Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "arguments" || arguments == null)
                 return default_serialize_property (property_name, value, pspec);
 
@@ -824,7 +824,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
             return node;
         }
 
-        public bool deserialize_property (string property_name, out GLib.Value value, GLib.ParamSpec pspec, Json.Node property_node) {
+        public override bool deserialize_property (string property_name, out GLib.Value value, GLib.ParamSpec pspec, Json.Node property_node) {
             if (property_name == "arguments") {
                 value = Value (typeof (Array));
                 if (property_node.get_node_type () != Json.NodeType.ARRAY) {
@@ -926,7 +926,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
         public Gee.List<Diagnostic> diagnostics { get; set; default = new Gee.ArrayList<Diagnostic> (); }
         public string[]? only { get; set; }
 
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
+        public override bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
             if (property_name != "diagnostics")
                 return default_deserialize_property (property_name, out value, pspec, property_node);
             var diags = new Gee.ArrayList<Diagnostic> ();
@@ -972,7 +972,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
     class WorkspaceEdit : SerializableObject {
         public Gee.List<TextDocumentEdit>? documentChanges { get; set; }
 
-        public Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "documentChanges")
                 return default_serialize_property (property_name, value, pspec);
 
@@ -1240,7 +1240,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
         public string? resultId { get; set; }
         public Gee.ArrayList<uint> data { get; private set; default = new Gee.ArrayList<uint> (); }
 
-public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "data")
                 return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
@@ -1256,7 +1256,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
         public string? resultId { get; set; }
         public Gee.ArrayList<SemanticTokensEdit> edits { get; private set; default = new Gee.ArrayList<SemanticTokensEdit> (); }
 
-public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "edits")
                 return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);

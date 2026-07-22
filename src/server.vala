@@ -25,47 +25,15 @@ class Vls.Server : Jsonrpc.Server {
 
     public Lsp.TraceValue trace { get; set; default = Lsp.TraceValue.VERBOSE; }
     MainLoop loop;
-    Scheduler scheduler;
+    internal Scheduler scheduler;
 
     public InitializeParams init_params;
 
-    const uint check_update_context_period_ms = 100;
-    const int64 update_context_delay_inc_us = 500 * 1000;
-    const int64 update_context_delay_max_us = 1000 * 1000;
-
     internal DocumentationEngine doc_engine;
+    internal ServiceProvider services;
+    internal ContextManager context_manager;
 
-    class PendingRequest {
-        public Request req;
-        public OnContextUpdatedFunc callback;
-        public PendingRequest (Request req, owned OnContextUpdatedFunc callback) {
-            this.req = req;
-            this.callback = (owned) callback;
-        }
-
-    }
-
-    // Requests waiting for a context rebuild, each with its continuation.
-    // Keyed by Request for O(1) lookup in find_pending (L6).
-    HashMap<Request, PendingRequest> pending_requests;
-
-    /**
-     * True while an async compilation is in flight on a worker thread.
-     * Prevents overlapping compilations; cancelled via {@link compile_cancellable}
-     * when a newer edit arrives.
-     */
-    int compile_in_progress_count = 0;
-
-    /**
-     * Per-compilation cancellable. Cancelled when a newer edit arrives
-     * so the in-flight worker discards stale work instead of completing it.
-     * Keyed by Compilation so each target gets its own cancellable.
-     */
-    Gee.HashMap<Compilation, Cancellable> compile_cancellables = new Gee.HashMap<Compilation, Cancellable> ();
-
-
-
-    bool shutting_down = false;
+    internal bool shutting_down = false;
 
     /**
      * The global cancellable object
@@ -74,26 +42,27 @@ class Vls.Server : Jsonrpc.Server {
 
     uint[] g_sources = {};
     ulong client_closed_event_id;
-    public HashTable<Project, ulong> projects;
-    public DefaultProject default_project;
 
     /**
-     * Contains files that have been closed and should no longer be managed
-     * by VLS. This is used to clear the errors/warnings for the files on
-     * the next context update.
+     * Manages project lifecycle and file lookup.
      */
-    HashSet<string> discarded_files = new HashSet<string> ();
+    internal ProjectManager project_manager = new ProjectManager ();
 
     /**
-     * Files that are currently open in the editor
+     * Manages open/discarded file tracking.
      */
-    HashSet<string> open_files = new HashSet<string> ();
+    internal DocumentManager document_manager = new DocumentManager ();
 
     /**
-     * Use this in projects to keep track of target outputs and avoid
-     * rebuilding dependent targets.
+     * Routes incoming LSP requests and notifications.
      */
-    FileCache file_cache = new FileCache ();
+    RequestRouter request_router;
+
+    /**
+     * Per-request cancellables for fine-grained cancellation.
+     */
+    internal Gee.HashMap<Request, Cancellable> request_cancellables = new Gee.HashMap<Request, Cancellable> (
+        req => req.hash (), (a, b) => a.equal (b));
 
     static construct {
         Process.@signal (ProcessSignal.INT, () => {
@@ -146,161 +115,19 @@ class Vls.Server : Jsonrpc.Server {
 
         accept_io_stream (new SimpleIOStream (input_stream, output_stream));
 
-        pending_requests = new HashMap<Request, PendingRequest> (req => req.hash (), (a, b) => a.equal (b));
-
-        this.projects = new HashTable<Project, ulong> (GLib.direct_hash, GLib.direct_equal);
+        this.context_manager = new ContextManager (this);
+        this.services = new ServiceProvider (this);
+        this.request_router = new RequestRouter (this);
 
         debug ("Finished constructing");
     }
 
     protected override void notification (Jsonrpc.Client client, string method, Variant parameters) {
-        switch (method) {
-            case "exit":
-                exit ();
-                break;
-
-            case "$/cancelRequest":
-                cancel_request (client, parameters);
-                break;
-
-            case "$/setTrace":
-                string? trace_value = null;
-                parameters.lookup ("value", "s", out trace_value);
-                trace = Lsp.TraceValue.parse (trace_value);
-                break;
-
-            case "textDocument/didOpen":
-                text_document_did_open (client, parameters);
-                break;
-
-            case "textDocument/didSave":
-                text_document_did_save (client, parameters);
-                break;
-
-            case "textDocument/didClose":
-                text_document_did_close (client, parameters);
-                break;
-
-            case "textDocument/didChange":
-                text_document_did_change (client, parameters);
-                break;
-
-            default:
-                warning ("unhandled notification `%s'", method);
-                break;
-        }
+        request_router.notification (client, method, parameters);
     }
 
     protected override bool handle_call (Jsonrpc.Client client, string method, Variant id, Variant parameters) {
-        switch (method) {
-            case "initialize":
-                initialize (client, method, id, parameters);
-                break;
-
-            case "shutdown":
-                shutdown ();
-                reply_null (id, client, method);
-                break;
-
-            case "textDocument/definition":
-                Navigation.goto_definition (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/documentSymbol":
-                DocumentSymbolHandler.document_symbol_outline (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/completion":
-                show_completion (client, method, id, parameters);
-                break;
-
-            case "textDocument/signatureHelp":
-                show_signature_help (client, method, id, parameters);
-                break;
-
-            case "textDocument/hover":
-                HoverHandler.hover (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/formatting":
-            case "textDocument/rangeFormatting":
-                format (client, method, id, parameters);
-                break;
-
-            case "textDocument/codeAction":
-                code_action (client, method, id, parameters);
-                break;
-
-            case "textDocument/references":
-            case "textDocument/documentHighlight":
-                Navigation.show_references (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/implementation":
-                Navigation.show_implementations (this, client, method, id, parameters);
-                break;
-
-            case "workspace/symbol":
-                Workspace.search_workspace_symbols (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/rename":
-                Rename.rename_symbol (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/prepareRename":
-                Rename.prepare_rename_symbol (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/codeLens":
-                code_lens (client, method, id, parameters);
-                break;
-
-            case "textDocument/prepareCallHierarchy":
-                CallHierarchy.prepare_call_hierarchy (this, client, method, id, parameters);
-                break;
-
-            case "callHierarchy/incomingCalls":
-                CallHierarchy.call_hierarchy_incoming_calls (this, client, method, id, parameters);
-                break;
-
-            case "callHierarchy/outgoingCalls":
-                CallHierarchy.call_hierarchy_outgoing_calls (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/inlayHint":
-                InlayHints.show_inlay_hints (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/prepareTypeHierarchy":
-                TypeHierarchy.prepare_type_hierarchy (this, client, method, id, parameters);
-                break;
-
-            case "typeHierarchy/supertypes":
-                TypeHierarchy.show_type_hierarchy (this, client, method, id, parameters, true);
-                break;
-
-            case "typeHierarchy/subtypes":
-                TypeHierarchy.show_type_hierarchy (this, client, method, id, parameters, false);
-                break;
-
-            case "textDocument/semanticTokens/full":
-                SemanticTokensHandler.full (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/semanticTokens/full/delta":
-                SemanticTokensHandler.delta (this, client, method, id, parameters);
-                break;
-
-            case "textDocument/semanticTokens/range":
-                SemanticTokensHandler.range (this, client, method, id, parameters);
-                break;
-
-            default:
-                warning ("unhandled call `%s'", method);
-                return false;
-        }
-        return true;
+        return request_router.handle_call (client, method, id, parameters);
     }
 
 #if WITH_JSONRPC_GLIB_3_30
@@ -334,40 +161,7 @@ class Vls.Server : Jsonrpc.Server {
         return builder.end ();
     }
 
-    /**
-     * Find a file with a URI. Will pick the first match.
-     *
-     * @param uri the URI of the file. may contain escape characters
-     */
-    public Vala.SourceFile? find_file (string uri, out Compilation? compilation = null, out Project? project = null) {
-        var results = new ArrayList<Pair<Vala.SourceFile, Compilation>> ();
-        Project? selected_project = null;
-        foreach (var p in projects.get_keys_as_array ()) {
-            results = p.lookup_compile_input_source_file (uri);
-            if (!results.is_empty) {
-                selected_project = p;
-                break;
-            }
-        }
-        // fallback to default project
-        if (selected_project == null) {
-            results = default_project.lookup_compile_input_source_file (uri);
-            if (!results.is_empty)
-                selected_project = default_project;
-        }
-
-        if (selected_project != null) {
-            project = selected_project;
-            compilation = results[0].second;
-            return results[0].first;
-        }
-
-        project = null;
-        compilation = null;
-        return null;
-    }
-
-    void show_message (Jsonrpc.Client client, string message, MessageType type) {
+    internal void show_message (Jsonrpc.Client client, string message, MessageType type) {
         if (type == MessageType.Error)
             warning (message);
         try {
@@ -380,7 +174,7 @@ class Vls.Server : Jsonrpc.Server {
         }
     }
 
-    void initialize (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void initialize (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         init_params = Util.parse_variant<InitializeParams> (@params);
 
         File root_dir;
@@ -485,7 +279,7 @@ class Vls.Server : Jsonrpc.Server {
             try {
                 // If meson.build was found in a parent directory, use that
                 string project_root = meson_file.get_parent ().get_path ();
-                backend_project = new MesonProject (project_root, file_cache, cancellable);
+                backend_project = new MesonProject (project_root, project_manager.file_cache, cancellable);
             } catch (Error e) {
                 if (!(e is ProjectError.VERSION_UNSUPPORTED)) {
                     show_message (client, @"Failed to initialize Meson project - $(e.message)", MessageType.Error);
@@ -498,7 +292,7 @@ class Vls.Server : Jsonrpc.Server {
             foreach (var cc_file in cc_files) {
                 string cc_file_path = Util.realpath (cc_file.get_path ());
                 try {
-                    backend_project = new CcProject (root_path, cc_file_path, file_cache, cancellable);
+                    backend_project = new CcProject (root_path, cc_file_path, project_manager.file_cache, cancellable);
                     debug ("[initialize] initialized CcProject with %s", cc_file_path);
                     break;
                 } catch (Error e) {
@@ -527,7 +321,7 @@ class Vls.Server : Jsonrpc.Server {
         }
 
         // always have default project
-        default_project = new DefaultProject (root_path, file_cache);
+        project_manager.default_project = new DefaultProject (root_path, project_manager.file_cache);
 
         // build and publish diagnostics
         foreach (var project in new_projects) {
@@ -552,35 +346,43 @@ class Vls.Server : Jsonrpc.Server {
         doc_engine = new DocumentationEngine (new GirDocumentation (packages, custom_gir_dirs));
 
         // listen for context update requests
-        update_context_client = client;
-        g_sources += Timeout.add (check_update_context_period_ms, check_update_context);
+        context_manager.request_context_update (client);
+        g_sources += Timeout.add (ContextManager.check_update_context_period_ms, context_manager.check_update_context);
 
         // listen for project changed events
         foreach (Project project in new_projects)
-            projects[project] = project.changed.connect (project_changed_event);
+            project_manager.projects[project] = project.changed.connect (project_changed_event);
     }
 
     void project_changed_event () {
-        request_context_update (update_context_client);
+        context_manager.request_context_update (context_manager.last_update_client);
         debug ("requested context update for project change event");
     }
 
-    void cancel_request (Jsonrpc.Client client, Variant @params) {
-        Variant? id = @params.lookup_value ("id", null);
-        if (id == null)
-            return;
-
-        var req = new Request (id);
-        var pr = find_pending (req);
-        if (pr != null) {
-            pending_requests.unset (req);
-            pr.callback (true);
+    internal void cancel_request (Jsonrpc.Client client, Variant @params) {
+        Variant? id_val = @params.lookup_value ("id", null);
+        if (id_val != null) {
+            var req = new Request (id_val);
+            var canc = request_cancellables[req];
+            if (canc != null) {
+                canc.cancel ();
+                request_cancellables.unset (req);
+            }
         }
+        context_manager.cancel_request (@params);
     }
 
-    public static void reply_null (Variant id, Jsonrpc.Client client, string method) {
+    /**
+     * Remove the per-request cancellable for the given request id.
+     * Called from reply paths that bypass RequestHandler wrappers.
+     */
+    public static void cleanup_request (Server server, Variant id) {
+        server.request_cancellables.unset (new Request (id));
+    }
+
+    public static void reply_null (Variant id, Jsonrpc.Client client, string method, Cancellable? cancellable = null) {
         try {
-            client.reply (id, new Variant.maybe (VariantType.VARIANT, null), cancellable);
+            client.reply (id, new Variant.maybe (VariantType.VARIANT, null), cancellable ?? Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
@@ -589,13 +391,13 @@ class Vls.Server : Jsonrpc.Server {
     /**
      * Reply with a JSON array of GObjects serialized to a JSON-RPC result.
      */
-    public static void reply_array (Jsonrpc.Client client, Variant id, Gee.Collection<Object> items, string method = "") {
+    public static void reply_array (Jsonrpc.Client client, Variant id, Gee.Collection<Object> items, string method = "", Cancellable? cancellable = null) {
         var array = new Json.Array ();
         foreach (var item in items)
             array.add_element (Json.gobject_serialize (item));
         try {
             Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
-            client.reply (id, result, cancellable);
+            client.reply (id, result, cancellable ?? Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
@@ -604,20 +406,18 @@ class Vls.Server : Jsonrpc.Server {
     /**
      * Reply with a JSON-RPC error.
      */
-    public static void reply_error (Jsonrpc.Client client, Variant id, int code, string message, string method = "") {
-        client.reply_error_async.begin (id, code, message, cancellable);
+    public static void reply_error (Jsonrpc.Client client, Variant id, int code, string message, string method = "", Cancellable? cancellable = null) {
+        client.reply_error_async.begin (id, code, message, cancellable ?? Server.cancellable);
         debug (@"[$method] error reply ($code): $message");
     }
 
     /**
      * Reply with a JSON array serialized from an already-built {@link Json.Array}.
-     * Use when the reply elements are not a uniform {@link Gee.Collection<Object>}
-     * (e.g. mixed {@link Location}/{@link DocumentHighlight} entries).
      */
-    public static void reply_json_array (Jsonrpc.Client client, Variant id, Json.Array array, string method = "") {
+    public static void reply_json_array (Jsonrpc.Client client, Variant id, Json.Array array, string method = "", Cancellable? cancellable = null) {
         try {
             Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
-            client.reply (id, result, cancellable);
+            client.reply (id, result, cancellable ?? Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
@@ -626,22 +426,20 @@ class Vls.Server : Jsonrpc.Server {
     /**
      * Reply with a single GObject serialized to JSON.
      */
-    public static void reply_object (Jsonrpc.Client client, Variant id, Object obj, string method = "") {
+    public static void reply_object (Jsonrpc.Client client, Variant id, Object obj, string method = "", Cancellable? cancellable = null) {
         try {
-            client.reply (id, Util.object_to_variant (obj), cancellable);
+            client.reply (id, Util.object_to_variant (obj), cancellable ?? Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
     }
 
     /**
-     * Reply with an already-built variant dict (e.g. from
-     * {@link Server.build_dict}). Use when the reply shape is not a single
-     * serialized GObject.
+     * Reply with an already-built variant dict.
      */
-    public static void reply_dict (Jsonrpc.Client client, Variant id, Variant dict, string method = "") {
+    public static void reply_dict (Jsonrpc.Client client, Variant id, Variant dict, string method = "", Cancellable? cancellable = null) {
         try {
-            client.reply (id, dict, cancellable);
+            client.reply (id, dict, cancellable ?? Server.cancellable);
         } catch (Error e) {
             debug (@"[$method] failed to reply to client: $(e.message)");
         }
@@ -666,10 +464,6 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     /**
-     * Context passed to a {@link RequestHandler}. Carries everything a handler
-     * needs so feature functions stop taking 9 positional arguments.
-     */
-    /**
      * Thin wrapper around Server instance methods that handlers need,
      * breaking the circular dependency Server ↔ handler files.
      */
@@ -680,24 +474,36 @@ class Vls.Server : Jsonrpc.Server {
             _server = server;
         }
 
-        public Vala.SourceFile? find_file (string uri, out Compilation? compilation, out Project? project) {
-            return _server.find_file (uri, out compilation, out project);
+        public void wait_for_context_update (Variant id, owned ContextManager.OnContextUpdatedFunc callback,
+                                              Compilation? compilation = null) {
+            _server.context_manager.wait_for_context_update (id, (owned) callback, compilation);
         }
 
-        public void wait_for_context_update (Variant id, owned Server.OnContextUpdatedFunc callback,
-                                              Compilation? compilation = null) {
-            _server.wait_for_context_update (id, (owned) callback, compilation);
+        public Server server {
+            get { return _server; }
+        }
+
+        public Scheduler scheduler {
+            get { return _server.scheduler; }
+        }
+
+        public DocumentationEngine doc_engine {
+            get { return _server.doc_engine; }
         }
 
         public HashTable<Project, ulong> projects {
-            get { return _server.projects; }
+            get { return _server.project_manager.projects; }
         }
 
         public DefaultProject default_project {
-            get { return _server.default_project; }
+            get { return _server.project_manager.default_project; }
         }
     }
 
+    /**
+     * Context passed to a {@link RequestHandler}. Carries everything a handler
+     * needs so feature functions stop taking 9 positional arguments.
+     */
     public class RequestContext {
         public Server server;
         public ServiceProvider services { get; private set; }
@@ -709,20 +515,24 @@ class Vls.Server : Jsonrpc.Server {
         public Compilation? compilation;
         public Project? project;
         public Lsp.Position? pos;
+        public Cancellable? cancellable { get; private set; }
+        internal Request _request;
 
         public RequestContext (Server server, Jsonrpc.Client client, Variant id, string method,
                                 Vala.SourceFile? file, Compilation? compilation, Project? project,
-                                Lsp.Position? pos = null) {
+                                Lsp.Position? pos = null, Cancellable? cancellable = null) {
             this.server = server;
-            this.services = new ServiceProvider (server);
+            this.services = server.services;
             this.doc_engine = server.doc_engine;
             this.client = client;
             this.id = id;
+            this._request = new Request (id);
             this.method = method;
             this.file = file;
             this.compilation = compilation;
             this.project = project;
             this.pos = pos;
+            this.cancellable = cancellable ?? server.request_cancellables[this._request];
         }
     }
 
@@ -747,27 +557,37 @@ class Vls.Server : Jsonrpc.Server {
         }
 
         protected void reply_null () {
-            Server.reply_null (ctx.id, ctx.client, ctx.method);
+            Server.reply_null (ctx.id, ctx.client, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
         }
 
         protected void reply_array (Gee.Collection<Object> items) {
-            Server.reply_array (ctx.client, ctx.id, items, ctx.method);
+            Server.reply_array (ctx.client, ctx.id, items, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
+        }
+
+        protected void reply_error (int code, string message) {
+            Server.reply_error (ctx.client, ctx.id, code, message, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
+        }
+
+        private void cleanup_request_cancellable () {
+            ctx.server.request_cancellables.unset (ctx._request);
         }
 
         protected void reply_json_array (Json.Array array) {
-            Server.reply_json_array (ctx.client, ctx.id, array, ctx.method);
+            Server.reply_json_array (ctx.client, ctx.id, array, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
         }
 
         protected void reply_object (Object obj) {
-            Server.reply_object (ctx.client, ctx.id, obj, ctx.method);
+            Server.reply_object (ctx.client, ctx.id, obj, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
         }
 
         protected void reply_dict (Variant dict) {
-            Server.reply_dict (ctx.client, ctx.id, dict, ctx.method);
-        }
-
-protected void reply_error (int code, string message) {
-            Server.reply_error (ctx.client, ctx.id, code, message, ctx.method);
+            Server.reply_dict (ctx.client, ctx.id, dict, ctx.method, ctx.cancellable);
+            cleanup_request_cancellable ();
         }
 
         /**
@@ -794,7 +614,7 @@ protected void reply_error (int code, string message) {
         }
     }
 
-    void text_document_did_open (Jsonrpc.Client client, Variant @params) {
+    internal void text_document_did_open (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
         string languageId = (string) document.lookup_value ("languageId", VariantType.STRING);
@@ -812,7 +632,7 @@ protected void reply_error (int code, string message) {
 
         Pair<Vala.SourceFile, Compilation>? doc_w_bt = null;
 
-        foreach (var project in projects.get_keys_as_array ()) {
+        foreach (var project in project_manager.projects.get_keys_as_array ()) {
             try {
                 doc_w_bt = project.open (uri, fileContents, cancellable).first ();
                 break;
@@ -825,17 +645,17 @@ protected void reply_error (int code, string message) {
         // fallback to default project
         if (doc_w_bt == null) {
             try {
-                doc_w_bt = default_project.open (uri, fileContents, cancellable).first ();
+                doc_w_bt = project_manager.default_project.open (uri, fileContents, cancellable).first ();
                 // it's possible that we opened a Vala script and have to
                 // include additional packages for documentation
-                foreach (var pkg in default_project.get_packages ())
+                foreach (var pkg in project_manager.default_project.get_packages ())
                     doc_engine.gir.add_package_from_source_file (pkg);
                 // show diagnostics for the newly-opened file
-                request_context_update (client);
+                context_manager.request_context_update (client);
                 // Bug #154: warn when a .vala/.gs file falls to default project
                 // but real project targets exist (file should be tracked).
                 if ((uri.has_suffix (".vala") || uri.has_suffix (".gs"))
-                    && projects.size () > 0) {
+                    && project_manager.projects.size () > 0) {
                     show_message (client,
                         "File is not listed in any build target. Add it to meson.build for full code intelligence.",
                         MessageType.Warning);
@@ -867,7 +687,7 @@ protected void reply_error (int code, string message) {
                 tdoc.content = fileContents;
                 tdoc.last_updated = GLib.get_real_time ();
                 debug ("[SEMTOK] didOpen: set content, last_updated=%s", Util.ts_to_string (tdoc.last_updated));
-                request_context_update (client);
+                context_manager.request_context_update (client);
                 debug ("[textDocument/didOpen] requested context update");
             }
         } else {
@@ -875,10 +695,10 @@ protected void reply_error (int code, string message) {
         }
 
         // add document to open list
-        open_files.add (uri);
+        document_manager.add_open_file (uri);
     }
 
-    void text_document_did_save (Jsonrpc.Client client, Variant @params) {
+    internal void text_document_did_save (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
 
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
@@ -887,8 +707,8 @@ protected void reply_error (int code, string message) {
             return;
         }
 
-        Project[] all_projects = projects.get_keys_as_array ();
-        all_projects += default_project;
+        Project[] all_projects = project_manager.projects.get_keys_as_array ();
+        all_projects += project_manager.default_project;
 
         foreach (var project in all_projects) {
             foreach (var pair in project.lookup_compile_input_source_file (uri)) {
@@ -906,7 +726,7 @@ protected void reply_error (int code, string message) {
         }
     }
 
-    void text_document_did_close (Jsonrpc.Client client, Variant @params) {
+    internal void text_document_did_close (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
 
@@ -915,14 +735,14 @@ protected void reply_error (int code, string message) {
             return;
         }
 
-        Project[] all_projects = projects.get_keys_as_array ();
-        all_projects += default_project;
+        Project[] all_projects = project_manager.projects.get_keys_as_array ();
+        all_projects += project_manager.default_project;
 
         foreach (var project in all_projects) {
             try {
                 if (project.close (uri)) {
-                    discarded_files.add (uri);
-                    request_context_update (client);
+                    document_manager.add_discarded_file (uri);
+                    context_manager.request_context_update (client);
                     debug ("[textDocument/didClose] requested context update");
                 }
                 debug ("[textDocument/didClose] closed %s", Util.project_uri (uri));
@@ -933,19 +753,15 @@ protected void reply_error (int code, string message) {
         }
     }
 
-    Jsonrpc.Client? update_context_client = null;
-    int64 update_context_requests = 0;
-    int64 update_context_time_us = 0;
-
-    void text_document_did_change (Jsonrpc.Client client, Variant @params) {
+    internal void text_document_did_change (Jsonrpc.Client client, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
         var changes = @params.lookup_value ("contentChanges", VariantType.ARRAY);
 
         var uri = (string) document.lookup_value ("uri", VariantType.STRING);
         var version = (int64) document.lookup_value ("version", VariantType.INT64);
 
-        Project[] all_projects = projects.get_keys_as_array ();
-        all_projects += default_project;
+        Project[] all_projects = project_manager.projects.get_keys_as_array ();
+        all_projects += project_manager.default_project;
 
         foreach (var project in all_projects) {
             foreach (Pair<Vala.SourceFile, Compilation> pair in project.lookup_compile_input_source_file (uri)) {
@@ -989,287 +805,12 @@ protected void reply_error (int code, string message) {
                 source.last_updated = GLib.get_real_time ();
                 source.version = (int) version;
 
-                request_context_update (client);
+                context_manager.request_context_update (client);
             }
         }
     }
 
-    /**
-     * Indicate to the server that the code context(s) it is tracking may
-     * need to be refreshed.
-     *
-     * @param client        the client to eventually send a `publishDiagnostics`
-     *                      notification to, if the context is refreshed
-     */
-    void request_context_update (Jsonrpc.Client client) {
-        update_context_client = client;
-        update_context_requests += 1;
-        int64 delay_us = int64.min (update_context_delay_inc_us * update_context_requests, update_context_delay_max_us);
-        update_context_time_us = get_monotonic_time () + delay_us;
-        // Cancel any in-flight compile — newer edits make it stale.
-        // The worker will check this and discard its result.
-        foreach (var entry in compile_cancellables.entries)
-            entry.value.cancel ();
-        debug ("[SEMTOK] request_context_update: requests=%d, delay=%dms",
-               (int) update_context_requests, (int) (delay_us / 1000));
-    }
-
-    /**
-     * Reconfigure the project if needed, and check whether we need to rebuild
-     * the project and documentation engine if we have context update requests.
-     */
-    bool check_update_context () {
-        if (update_context_requests > 0 && get_monotonic_time () >= update_context_time_us) {
-            debug ("[SEMTOK] check_update_context: starting rebuild (requests=%d)", (int) update_context_requests);
-
-            Project[] all_projects = projects.get_keys_as_array ();
-            all_projects += default_project;
-            bool reconfigured_projects = false;
-
-            // If compiles are already in flight, skip this cycle —
-            // the in-flight compiles will swap and re-trigger via pending_requests.
-            // Bug #1: Do NOT reset update_context_requests here — new edits
-            // arriving during the compile must still see a non-zero counter
-            // so they wait instead of proceeding against stale data.
-            if (compile_in_progress_count > 0) {
-                debug ("[SEMTOK] check_update_context: %d compile(s) in progress, deferring", compile_in_progress_count);
-                return true;
-            }
-
-            // Reset the counters after confirming no compiles are in flight.
-            // If reconfigure_if_stale throws, incoming requests are not lost.
-            update_context_requests = 0;
-            update_context_time_us = 0;
-
-            foreach (var project in all_projects) {
-                try {
-                    bool reconfigured = project.reconfigure_if_stale (cancellable);
-                    reconfigured_projects |= reconfigured;
-
-                    foreach (var compilation in project.get_compilations ()) {
-                        if (compilation.is_stale ()) {
-                            debug ("[SEMTOK] check_update_context: starting async compile for %s", compilation.id);
-                            compile_in_progress_count++;
-                            // create a fresh cancellable for this compile.
-                            // request_context_update() cancels it when new edits arrive.
-                            var compile_canc = new Cancellable ();
-                            compile_cancellables[compilation] = compile_canc;
-                            // Dispatch the heavy compile to a worker thread via the Scheduler.
-                            // compile_on_worker creates its own isolated CodeContext
-                            // and does not touch the main-thread state until
-                            // swap_compile_result is called.
-                            var captured_project = project;
-                            scheduler.run_async.begin<Compilation.CompileResult> (() => {
-                                return compilation.compile_on_worker (compile_canc);
-                            }, compile_canc, (obj, res) => {
-                                bool was_cancelled = false;
-                                try {
-                                    var result = scheduler.run_async.end<Compilation.CompileResult> (res);
-                                    // if the cancellable fired, a newer edit arrived
-                                    // while this compile was running — discard the stale result.
-                                    was_cancelled = compile_canc.is_cancelled ();
-                                    if (was_cancelled) {
-                                        debug ("[SEMTOK] async compile cancelled for %s (newer edit arrived)", compilation.id);
-                                    } else {
-                                        compilation.swap_compile_result (result);
-                                        debug ("[SEMTOK] async compile done for %s", compilation.id);
-                                    }
-                                } catch (Error e) {
-                                    was_cancelled = compile_canc.is_cancelled ();
-                                    if (!was_cancelled)
-                                        warning ("Async compile failed: %s", e.message);
-                                } finally {
-                                    compile_in_progress_count--;
-                                    compile_cancellables.unset (compilation);
-                                    if (!was_cancelled) {
-                                        // Item 7: only publish diagnostics for the
-                                        // compilation that was actually recompiled,
-                                        // not all compilations (avoids stale-diagnostic
-                                        // overwrite for multi-compilation files).
-                                        publish_diagnostics (captured_project, compilation, update_context_client);
-                                        // Fire pending requests only when ALL compilations
-                                        // have finished — avoids satisfying requests against
-                                        // a partially-updated state.
-                                        if (compile_in_progress_count == 0)
-                                            fire_pending_context_updates ();
-                                    }
-                                    // When cancelled: don't fire pending requests, they'll
-                                    // be satisfied by the next compile cycle. The Idle
-                                    // safety net in wait_for_context_update covers race
-                                    // conditions where a request arrives between the
-                                    // finally block and the next timer tick.
-                                }
-                            });
-                        }
-                    }
-
-                    // remove all newly-added files from the default project
-                    if (reconfigured && project != default_project) {
-                        var newly_added = new HashSet<string> ();
-                        foreach (var compilation in project.get_compilations ())
-                            newly_added.add_all_iterator
-                                (compilation.get_project_files ().map<string> (f => f.filename));
-                        foreach (var compilation in default_project.get_compilations ()) {
-                            foreach (var source_file in compilation.get_project_files ()) {
-                                if (newly_added.contains (source_file.filename)) {
-                                    var uri = File.new_for_path (source_file.filename).get_uri ();
-                                    try {
-                                        default_project.close (uri);
-                                        discarded_files.add (uri);
-                                        debug ("discarding %s from DefaultProject", Util.project_uri (uri));
-                                    } catch (Error e) {
-                                        // just ignore
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    foreach (var compilation in project.get_compilations ())
-                        publish_diagnostics (project, compilation, update_context_client);
-                } catch (Error e) {
-                    warning ("Failed to rebuild and/or reconfigure project: %s", e.message);
-                    show_message (update_context_client,
-                        @"Failed to rebuild/reconfigure project: $(e.message)",
-                        MessageType.Error);
-                }
-            }
-
-            // add open files that do not belong to any project to the default project
-            if (reconfigured_projects) {
-                var orphaned_files = new HashSet<string> ();
-                orphaned_files.add_all (open_files);
-                foreach (var project in projects.get_keys ()) {
-                    foreach (var compilation in project.get_compilations ()) {
-                        foreach (var source_file in compilation.code_context.get_source_files ()) {
-                            var uri = File.new_for_path (source_file.filename).get_uri ();
-                            orphaned_files.remove (uri);
-                        }
-                    }
-                }
-                foreach (var uri in orphaned_files) {
-                    try {
-                        var opened = default_project.open (uri, null, cancellable).first ();
-                        // ensure the file's contents are available
-                        var doc = opened.first;
-                        if (doc.content == null)
-                            doc.get_mapped_contents ();
-                        if (doc is TextDocument)
-                            ((TextDocument)doc).last_saved_content = doc.content;
-                        publish_diagnostics (default_project, opened.second, update_context_client);
-                    } catch (Error e) {
-                        warning ("Failed to reopen in default project %s - %s", uri, e.message);
-                        // clear the diagnostics for the file
-                        try {
-                            update_context_client.send_notification (
-                                "textDocument/publishDiagnostics",
-                                build_dict (
-                                    uri: new Variant.string (uri),
-                                    diagnostics: new Variant.array (VariantType.VARIANT, {})
-                                )
-                            );
-                        } catch (Error e) {
-                            warning ("Failed to clear diagnostics for %s - %s", uri, e.message);
-                        }
-                    }
-                }
-            }
-
-            // rebuild the documentation
-            doc_engine.gir.rebuild_if_stale ();
-
-            // Pending context updates are fired from the async compile
-            // callback when compile_in_progress_count reaches 0 — no
-            // unconditional fire here to avoid stale-data satisfaction.
-        }
-        return !this.shutting_down;
-    }
-
-    public delegate void OnContextUpdatedFunc (bool request_cancelled);
-
-    /**
-     * Run `on_context_updated_func` once the code context is fresh.
-     *
-     * If no rebuild is pending, the continuation runs immediately. Otherwise
-     * the request is registered and satisfied centrally by
-     * {@link fire_pending_context_updates} when the rebuild completes — no
-     * polling. (Previously a 200 ms poll re-checked the main loop; see
-     * perf.md Phase A3.) A single idle re-check guards the rare window where
-     * a rebuild is already in flight (requests already reset to 0) when this
-     * is called.
-     *
-     * If {@code compilation} is provided, the request only waits when that
-     * specific compilation is stale (B4 per-target gating). Requests for
-     * non-stale compilations proceed immediately even if other compilations
-     * have pending edits.
-     */
-    public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func,
-                                          Compilation? compilation = null) {
-        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s",
-               id.print (false), (int) update_context_requests, pending_requests.size,
-               compilation != null ? compilation.id : "any");
-        // If a specific compilation is known and it's not stale,
-        // proceed immediately — edits in other targets don't block this one.
-        if (compilation != null && !compilation.is_stale ()) {
-            on_context_updated_func (false);
-            return;
-        }
-        // Bug #2: Also check compile_in_progress_count — compiles may be in-flight
-        // with the counter already reset (or about to be). If compiles are
-        // running, we must wait for them to finish and re-check.
-        if (update_context_requests == 0 && compile_in_progress_count == 0) {
-            on_context_updated_func (false);
-            return;
-        }
-        var req = new Request (id);
-        if (pending_requests.has_key (req))
-            warning (@"Request ($req): request already in pending requests, this should not happen");
-        else
-            pending_requests[req] = new PendingRequest (req, (owned) on_context_updated_func);
-        // Safety net: if a rebuild was already in flight when we registered
-        // (so fire_pending_context_updates already ran), satisfy on idle.
-        Idle.add (() => {
-            var pr = find_pending (req);
-            if (pr == null) {
-                // already fired or cancelled
-                return Source.REMOVE;
-            }
-            // re-check per-compilation staleness on idle
-            if (compilation != null && !compilation.is_stale ()) {
-                pending_requests.unset (req);
-                pr.callback (false);
-                return Source.REMOVE;
-            }
-            // Bug #2: Also check compile_in_progress_count on idle
-            if (update_context_requests == 0 && compile_in_progress_count == 0) {
-                pending_requests.unset (req);
-                pr.callback (false);
-            }
-            // else: still pending, fire_pending_context_updates will handle it
-            return Source.REMOVE;
-        });
-    }
-
-    PendingRequest? find_pending (Request req) {
-        return pending_requests[req];
-    }
-
-    /**
-     * Fire every request waiting on a context rebuild. Called by
-     * {@link check_update_context} once the rebuild finishes, so waiting
-     * requests are satisfied immediately instead of on a 200 ms poll.
-     */
-    void fire_pending_context_updates () {
-        if (pending_requests.size == 0)
-            return;
-        var fired = pending_requests.values.to_array ();
-        pending_requests.clear ();
-        foreach (var pr in fired) {
-            pr.callback (false);
-        }
-    }
-
-    void publish_diagnostics (Project project, Compilation target, Jsonrpc.Client client) {
+    internal void publish_diagnostics (Project project, Compilation target, Jsonrpc.Client client) {
         var diags_without_source = new Json.Array ();
 
         debug ("publishing diagnostics for %s", target.name);
@@ -1328,7 +869,7 @@ protected void reply_error (int code, string message) {
 
         // first, publish empty diagnostics for discarded files
         var discarded_files_published = new ArrayList<string> ();
-        foreach (string discarded_uri in discarded_files) {
+        foreach (string discarded_uri in document_manager.get_discarded_files ()) {
             try {
                 client.send_notification (
                     "textDocument/publishDiagnostics",
@@ -1342,7 +883,7 @@ protected void reply_error (int code, string message) {
                 warning ("[publishDiagnostics] failed to publish empty diags for %s: %s", discarded_uri, e.message);
             }
         }
-        discarded_files.remove_all (discarded_files_published);
+        document_manager.remove_discarded_files (discarded_files_published);
 
         // report diagnostics for each source file that has diagnostics
         foreach (var entry in doc_diags.entries) {
@@ -1393,40 +934,7 @@ protected void reply_error (int code, string message) {
     }
 
     public static Vala.CodeNode get_best (NodeSearch fs, Vala.SourceFile file) {
-        Vala.CodeNode? best = null;
-
-        foreach (var node in fs.result) {
-            if (best == null) {
-                best = node;
-            } else {
-                var best_begin = new Position.from_libvala (best.source_reference.begin);
-                var best_end = new Position.from_libvala (best.source_reference.end);
-                var node_begin = new Position.from_libvala (node.source_reference.begin);
-                var node_end = new Position.from_libvala (node.source_reference.end);
-
-                // it turns out that if multiple CodeNodes share the same range, the first one we
-                // encounter will usually be the "right" one
-                if (best_begin.compare_to (node_begin) <= 0 && node_end.compare_to (best_end) <= 0 &&
-                    (!(best_begin.compare_to (node_begin) == 0 && node_end.compare_to (best_end) == 0) ||
-                    // allow exception for local variables (pick the last one) - this helps foreach
-                    (best is Vala.LocalVariable && node is Vala.LocalVariable) ||
-                    // allow exception for lone properties - their implicit _* fields are declared in the same location
-                    (best is Vala.Field && node is Vala.Property) ||
-                    // allow exception for null literals which for some reason are created over async methods that are accessed
-                    (best is Vala.NullLiteral && node is Vala.Method)
-                )) {
-                    best = node;
-                }
-            }
-        }
-
-        // var sr = best.source_reference;
-        // var from = (long)Util.get_string_pos (file.content, sr.begin.line-1, sr.begin.column-1);
-        // var to = (long)Util.get_string_pos (file.content, sr.end.line-1, sr.end.column);
-        // string contents = file.content [from:to];
-        // debug ("Got best node: %s @ %s = %s", best.type_name, sr.to_string(), contents);
-
-        return (!) best;
+        return Vls.SymbolResolver.get_best (fs, file);
     }
 
     // Search for the most relevant code node at the given position. Returns
@@ -1434,22 +942,13 @@ protected void reply_error (int code, string message) {
     // relevant code context.
     public static Vala.CodeNode? resolve_best_node (Vala.SourceFile file, Position pos,
                                                      bool search_multiline = true) {
-        var fs = new NodeSearch (file, pos, search_multiline);
-        if (fs.result.size == 0)
-            return null;
-        return get_best (fs, file);
+        return Vls.SymbolResolver.resolve_best_node (file, pos, search_multiline);
     }
 
     // Resolve an expression / data type / using directive to the symbol it
     // refers to, leaving other node kinds untouched.
     public static Vala.CodeNode? unwrap_to_symbol (Vala.CodeNode node) {
-        if (node is Vala.Expression && ((Vala.Expression) node).symbol_reference != null)
-            return ((Vala.Expression) node).symbol_reference;
-        if (node is Vala.DataType)
-            return SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) node);
-        if (node is Vala.UsingDirective && ((Vala.UsingDirective) node).namespace_symbol != null)
-            return ((Vala.UsingDirective) node).namespace_symbol;
-        return node;
+        return Vls.SymbolResolver.unwrap_to_symbol (node);
     }
 
     /**
@@ -1465,65 +964,20 @@ protected void reply_error (int code, string message) {
      * range + node file into a `Location`.
      */
     public static Vala.CodeNode? resolve_symbol_at (RequestContext ctx, out Lsp.Range? range) {
-        range = null;
-        var resolved = resolve_best_node (ctx.file, (!) ctx.pos);
-        if (resolved == null)
-            return null;
-
-        var best = (!) resolved;
-
-        if (best is Vala.Expression && !(best is Vala.Literal)) {
-            var b = (Vala.Expression) best;
-            if (b.symbol_reference != null && b.symbol_reference.source_reference != null)
-                best = b.symbol_reference;
-        } else if (best is Vala.DataType) {
-            best = SymbolReferences.get_symbol_data_type_refers_to ((Vala.DataType) best);
-        } else if (best is Vala.UsingDirective) {
-            best = ((Vala.UsingDirective) best).namespace_symbol;
-        } else if (best is Vala.Method) {
-            var m = (Vala.Method) best;
-            if (m.base_interface_method != m && m.base_interface_method != null)
-                best = m.base_interface_method;
-            else if (m.base_method != m && m.base_method != null)
-                best = m.base_method;
-        } else if (best is Vala.Property) {
-            var prop = (Vala.Property) best;
-            if (prop.base_interface_property != prop && prop.base_interface_property != null)
-                best = prop.base_interface_property;
-            else if (prop.base_property != prop && prop.base_property != null)
-                best = prop.base_property;
-        }
-
-        // Only symbol nodes are valid definition targets. Anything else
-        // (literals, statements, blocks, ...) is not something we can jump
-        // to, so we match the old handler's behavior of replying null.
-        if (!(best is Vala.Symbol))
-            return null;
-
-        best = SymbolReferences.find_real_symbol (ctx.project, (Vala.Symbol) best);
-
-        if (best.source_reference == null)
-            return best;
-        range = new Lsp.Range.from_sourceref (best.source_reference);
-        return best;
-    }
-
-
-    public DocComment? get_symbol_documentation (Project project, Vala.Symbol sym) {
-        return doc_engine.get_symbol_documentation (project, sym);
+        return Vls.SymbolResolver.resolve_symbol_at (ctx, out range);
     }
 
     void clear_doc_cache () {
         doc_engine.clear_cache ();
     }
 
-    void show_completion (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void show_completion (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         clear_doc_cache ();
         var p = Util.parse_variant<Lsp.CompletionParams>(@params);
 
         Compilation compilation;
         Project project;
-        Vala.SourceFile? file = find_file (p.textDocument.uri, out compilation, out project);
+        Vala.SourceFile? file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
@@ -1538,12 +992,12 @@ protected void reply_error (int code, string message) {
         });
     }
 
-    void show_signature_help (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void show_signature_help (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
 
         Compilation compilation;
         Project project;
-        Vala.SourceFile file = find_file (p.textDocument.uri, out compilation, out project);
+        Vala.SourceFile file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
@@ -1571,7 +1025,7 @@ protected void reply_error (int code, string message) {
             TextEdit edited;
             var code_style = ctx.compilation.get_analysis_for_file<CodeStyleAnalyzer> (ctx.file);
             try {
-                edited = ctx.server.scheduler.run_sync<TextEdit> (() => {
+                edited = ctx.services.scheduler.run_sync<TextEdit> (() => {
                     return Formatter.format (p.options, code_style, ctx.file,
                                              p.range, cancellable);
                 }, cancellable);
@@ -1585,18 +1039,18 @@ protected void reply_error (int code, string message) {
         }
     }
 
-    void format (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void format (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<DocumentRangeFormattingParams>(@params);
 
         Compilation compilation;
-        Vala.SourceFile? source_file = find_file (p.textDocument.uri, out compilation);
+        Vala.SourceFile? source_file = project_manager.find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
 
-        wait_for_context_update (id, request_cancelled => {
+            context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
@@ -1633,18 +1087,18 @@ protected void reply_error (int code, string message) {
         }
     }
 
-    void code_action (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void code_action (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<CodeActionParams> (@params);
 
         Compilation compilation;
-        Vala.SourceFile? source_file = find_file (p.textDocument.uri, out compilation);
+        Vala.SourceFile? source_file = project_manager.find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
             reply_null (id, client, method);
             return;
         }
 
-        wait_for_context_update (id, request_cancelled => {
+            context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
@@ -1659,9 +1113,116 @@ protected void reply_error (int code, string message) {
     }
 
     /**
-     * handle an incoming `textDocument/codeLens` request
+     * handle an incoming `workspace/symbol` request
      */
-    void code_lens (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+    internal void dispatch_workspace_symbol (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var query = (string) @params.lookup_value ("query", VariantType.STRING);
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+            var ctx = new RequestContext (this, client, id, method, null, null, null);
+            var handler = new Workspace.WorkspaceSymbolHandler (ctx, query);
+            handler.run ();
+        });
+    }
+
+    internal void dispatch_document_symbol (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
+
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (file == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            bool hierarchical = init_params.capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport;
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) file, compilation, project, p.position);
+            with_code_context (compilation.code_context, () => {
+                var handler = new DocumentSymbolHandler.DocumentSymbolHandler (ctx, hierarchical);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_prepare_rename (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
+
+        Compilation compilation;
+        Project project;
+        Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project, p.position);
+            with_code_context (compilation.code_context, () => {
+                var handler = new Rename.PrepareRenameHandler (ctx);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_rename (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        string new_name = (string) @params.lookup_value ("newName", VariantType.STRING);
+
+        // before anything, sanity-check the new symbol name
+        if (!/^(?=[^\d])[^\s~`!#%^&*()\-\+={}\[\]|\\\/?.>,<'";:]+$/.match (new_name)) {
+            client.reply_error_async.begin (
+                id,
+                Jsonrpc.ClientError.INVALID_REQUEST,
+                "Invalid symbol name. Symbol names cannot start with a number and must not contain any operators.",
+                Server.cancellable);
+            return;
+        }
+
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
+
+        Project project;
+        Compilation compilation;
+        Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project, p.position);
+            with_code_context (compilation.code_context, () => {
+                var handler = new Rename.RenameHandler (ctx, new_name);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_code_lens (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var document = @params.lookup_value ("textDocument", VariantType.VARDICT);
         string? uri = document != null ? (string?) document.lookup_value ("uri", VariantType.STRING) : null;
 
@@ -1673,30 +1234,294 @@ protected void reply_error (int code, string message) {
 
         Project project;
         Compilation compilation;
-        Vala.SourceFile? file = find_file (uri, out compilation, out project);
+        Vala.SourceFile? file = project_manager.find_file (uri, out compilation, out project);
         if (file == null) {
             debug ("[%s] file `%s' not found", method, Util.project_uri (uri));
             reply_null (id, client, method);
             return;
         }
 
-        CodeLensEngine.begin_response (this, project, client, id, method, file, compilation);
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         file, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new CodeLensEngine.CodeLensHandler (ctx);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_semantic_tokens_full (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.SemanticTokensParams> (@params);
+        debug ("[SEMTOK] full request: %s",
+               Util.project_uri (p.textDocument.uri));
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensHandler.SemanticTokensFullHandler (ctx, p.textDocument.uri);
+                handler.run ();
+            });
+        });
+    }
+
+    internal void dispatch_semantic_tokens_delta (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.SemanticTokensDeltaParams> (@params);
+        debug ("[SEMTOK] delta request: uri=%s, prev_id=%s",
+               Util.project_uri (p.textDocument.uri), p.previousResultId ?? "null");
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensHandler.SemanticTokensDeltaHandler (ctx, p.textDocument.uri, p.previousResultId);
+                handler.run ();
+            });
+        });
+    }
+
+    internal void dispatch_semantic_tokens_range (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.SemanticTokensRangeParams> (@params);
+        debug ("[SEMTOK] range request: %s",
+               Util.project_uri (p.textDocument.uri));
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new SemanticTokensHandler.SemanticTokensRangeHandler (ctx, p.textDocument.uri, p.range);
+                handler.run ();
+            });
+        });
+    }
+
+    internal void dispatch_prepare_call_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
+
+        Project project;
+        Compilation compilation;
+        Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project, p.position);
+            with_code_context (compilation.code_context, () => {
+                var handler = new CallHierarchy.PrepareCallHierarchyHandler (ctx, p);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_call_hierarchy_incoming_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
+        var item = Util.parse_variant<Lsp.CallHierarchyItem> (itemv);
+
+        Project project;
+        Compilation compilation;
+        Vala.SourceFile? doc = project_manager.find_file (item.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new CallHierarchy.CallHierarchyIncomingHandler (ctx, item);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_call_hierarchy_outgoing_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
+        var item = Util.parse_variant<Lsp.CallHierarchyItem> (itemv);
+
+        Project project;
+        Compilation compilation;
+        Vala.SourceFile? doc = project_manager.find_file (item.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new CallHierarchy.CallHierarchyOutgoingHandler (ctx, item);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_inlay_hint (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.InlayHintParams> (@params);
+
+        Compilation? compilation;
+        Project? project;
+        var file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (file == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) file, compilation, project, p.range.start);
+            with_code_context (compilation.code_context, () => {
+                var handler = new InlayHints.InlayHintHandler (ctx, p);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_prepare_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
+
+        Project project;
+        Compilation compilation;
+        var doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project, p.position);
+            with_code_context (compilation.code_context, () => {
+                var handler = new TypeHierarchy.PrepareTypeHierarchyHandler (ctx, p);
+                handler.run ();
+            });
+        }, compilation);
+    }
+
+    internal void dispatch_show_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params, bool supertypes) {
+        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
+        var item = Util.parse_variant<Lsp.TypeHierarchyItem> (itemv);
+
+        Project project;
+        Compilation compilation;
+        var doc = project_manager.find_file (item.uri, out compilation, out project);
+        if (doc == null) {
+            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            reply_null (id, client, method);
+            return;
+        }
+
+            context_manager.wait_for_context_update (id, request_cancelled => {
+            if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+
+            var ctx = new RequestContext (this, client, id, method,
+                                         (!) doc, compilation, project);
+            with_code_context (compilation.code_context, () => {
+                var handler = new TypeHierarchy.ShowTypeHierarchyHandler (ctx, item, supertypes);
+                handler.run ();
+            });
+        }, compilation);
     }
 
 
-    void shutdown () {
+    internal void shutdown () {
         debug ("shutting down...");
         this.shutting_down = true;
         cancellable.cancel ();
         if (client_closed_event_id != 0)
             this.disconnect (client_closed_event_id);
-        foreach (var project in projects.get_keys_as_array ())
-            project.disconnect (projects[project]);
+        foreach (var project in project_manager.projects.get_keys_as_array ())
+            project.disconnect (project_manager.projects[project]);
         foreach (uint source_id in g_sources)
             Source.remove (source_id);
     }
 
-    void exit () {
+    internal void exit () {
         loop.quit ();
     }
 }

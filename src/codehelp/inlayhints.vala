@@ -283,33 +283,4 @@ namespace Vls.InlayHints {
         }
         }
     }
-
-    void show_inlay_hints (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<InlayHintParams> (@params);
-
-        Compilation? compilation;
-        var file = server.find_file (p.textDocument.uri, out compilation);
-        if (file == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            Project project;
-            Compilation comp;
-            server.find_file (p.textDocument.uri, out comp, out project);
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) file, comp, project, p.range.start);
-            Server.with_code_context (comp.code_context, () => {
-                var handler = new InlayHintHandler (ctx, p);
-                handler.run ();
-            });
-        }, compilation);
-    }
 }

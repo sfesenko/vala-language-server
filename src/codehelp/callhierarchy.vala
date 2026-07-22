@@ -178,33 +178,6 @@ namespace Vls.CallHierarchy {
         }
     }
 
-    void prepare_call_hierarchy (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var p = Util.parse_variant<TextDocumentPositionParams> (@params);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = server.find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project, p.position);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new PrepareCallHierarchyHandler (ctx, p);
-                handler.run ();
-            });
-        }, compilation);
-    }
-
     class CallHierarchyIncomingHandler : Server.RequestHandler {
         private CallHierarchyItem item;
 
@@ -231,34 +204,6 @@ namespace Vls.CallHierarchy {
         }
     }
 
-    void call_hierarchy_incoming_calls (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<CallHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = server.find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new CallHierarchyIncomingHandler (ctx, item);
-                handler.run ();
-            });
-        }, compilation);
-    }
-
     class CallHierarchyOutgoingHandler : Server.RequestHandler {
         private CallHierarchyItem item;
 
@@ -283,33 +228,5 @@ namespace Vls.CallHierarchy {
                 debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
             }
         }
-    }
-
-    void call_hierarchy_outgoing_calls (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var itemv = @params.lookup_value ("item", VariantType.VARDICT);
-        var item = Util.parse_variant<CallHierarchyItem> (itemv);
-
-        Project project;
-        Compilation compilation;
-        Vala.SourceFile? doc = server.find_file (item.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (item.uri));
-            Server.reply_null (id, client, method);
-            return;
-        }
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 (!) doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new CallHierarchyOutgoingHandler (ctx, item);
-                handler.run ();
-            });
-        }, compilation);
     }
 }

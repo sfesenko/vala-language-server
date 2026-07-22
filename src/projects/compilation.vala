@@ -50,9 +50,9 @@ class Vls.Compilation : BuildTarget {
     private HashSet<File> _generated_sources = new HashSet<File> (Util.file_hash, Util.file_equal);
 
     /**
-     * The analyses for each project source.
+     * The analyses for each project source, cached at project level.
      */
-    private HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> _source_analyzers = new HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> ();
+    private AnalysisCache _analysis_cache;
 
     public Vala.CodeContext code_context { get; private set; default = new Vala.CodeContext (); }
 
@@ -131,12 +131,13 @@ class Vls.Compilation : BuildTarget {
      */
     public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans { get; private set; default = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> (); }
 
-    public Compilation (FileCache file_cache, string output_dir, string name, string id, int no,
+    public Compilation (FileCache file_cache, AnalysisCache analysis_cache, string output_dir, string name, string id, int no,
                         string[] compiler, string[] args, string[] sources, string[] generated_sources,
                         string?[] target_output_files,
                         string[]? sources_content = null) throws Error {
         base (output_dir, name, id, no);
         _file_cache = file_cache;
+        _analysis_cache = analysis_cache;
         directory = output_dir;
 
         // parse arguments
@@ -478,7 +479,7 @@ class Vls.Compilation : BuildTarget {
             removed_sources.remove (entry.value);
         }
         foreach (var source in removed_sources)
-            _source_analyzers.unset (source, null);
+            _analysis_cache.invalidate_for_file (source.filename);
 
         _completed_first_compile = true;
         _packages_loaded = true;
@@ -555,7 +556,6 @@ class Vls.Compilation : BuildTarget {
      */
     public class CompileResult {
         public Vala.CodeContext code_context;
-        public HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> source_analyzers;
         public HashSet<Vala.LocalVariable> var_decls;
         public HashMap<Vala.CodeNode, int> method_calls;
         public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans;
@@ -573,7 +573,6 @@ class Vls.Compilation : BuildTarget {
      */
     public CompileResult compile_on_worker (Cancellable? cancellable = null) throws Error {
         var result = new CompileResult ();
-        result.source_analyzers = new HashMap<Vala.SourceFile, HashMap<Type, AbstractAnalyzer>> ();
         result.var_decls = new HashSet<Vala.LocalVariable> ();
         result.method_calls = new HashMap<Vala.CodeNode, int> ();
         result.template_spans = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> ();
@@ -684,13 +683,6 @@ class Vls.Compilation : BuildTarget {
         }
 
         code_context = result.code_context;
-        // Bug #3: Don't replace _source_analyzers when the worker result is empty.
-        // The worker cannot produce main-thread analyzer objects (they hold
-        // references to main-thread AST nodes), so the map is always empty.
-        // Keep the existing cache — stale entries are naturally invalidated
-        // by last_updated checks in get_analysis_for_file().
-        if (result.source_analyzers.size > 0)
-            _source_analyzers = result.source_analyzers;
         var_decls = result.var_decls;
         method_calls = result.method_calls;
         template_spans = remapped_spans;
@@ -718,19 +710,17 @@ class Vls.Compilation : BuildTarget {
             interface_writer.write_file (code_context, _output_internal_vapi);
         }
 
-        // Remove analyses for sources no longer in the code context.
-        // Use filenames for comparison since worker-thread SourceFiles
-        // have different object identity than main-thread ones.
+        // Invalidate analyses for sources no longer in the code context.
         var new_filenames = new HashSet<string> ();
         foreach (var source in code_context.get_source_files ())
             new_filenames.add (source.filename);
-        var removed_analyzers = new ArrayList<Vala.SourceFile> ();
-        foreach (var entry in _source_analyzers) {
-            if (!new_filenames.contains (entry.key.filename))
-                removed_analyzers.add (entry.key);
+        var removed_filenames = new HashSet<string> ();
+        foreach (var old_source in _project_sources.values) {
+            if (!new_filenames.contains (old_source.filename))
+                removed_filenames.add (old_source.filename);
         }
-        foreach (var source in removed_analyzers)
-            _source_analyzers.unset (source, null);
+        if (removed_filenames.size > 0)
+            _analysis_cache.invalidate_files (removed_filenames);
 
         // Update TextDocument contexts to point to the new code_context
         foreach (var entry in _project_sources)
@@ -738,54 +728,10 @@ class Vls.Compilation : BuildTarget {
     }
 
     /**
-     * Get the analysis for the source file
+     * Get the analysis for the source file via the project-level AnalysisCache.
      */
     public T? get_analysis_for_file<T> (Vala.SourceFile source) {
-        var analyses = _source_analyzers[source];
-        if (analyses == null) {
-            analyses = new HashMap<Type, AbstractAnalyzer> ();
-            _source_analyzers[source] = analyses;
-        }
-
-        // generate the analysis on demand if it doesn't exist or it is stale
-        AbstractAnalyzer? analysis = null;
-        bool has_cached = analyses.has_key (typeof (T));
-        if (!has_cached || analyses[typeof (T)].last_updated < last_updated) {
-            if (has_cached)
-                debug ("[SEMTOK] get_analysis_for_file: stale %s for %s (analysis_lu=%s < comp_lu=%s)",
-                       typeof (T).name (), source.filename,
-                       Util.ts_to_string (analyses[typeof (T)].last_updated), Util.ts_to_string (last_updated));
-            else
-                debug ("[SEMTOK] get_analysis_for_file: no cached %s for %s, creating",
-                       typeof (T).name (), source.filename);
-            Vala.CodeContext.push (code_context);
-            try {
-                if (typeof (T) == typeof (CodeStyleAnalyzer)) {
-                    analysis = new CodeStyleAnalyzer (source);
-                } else if (typeof (T) == typeof (SymbolEnumerator)) {
-                    analysis = new SymbolEnumerator (source);
-                } else if (typeof (T) == typeof (CodeLensAnalyzer)) {
-                    analysis = new CodeLensAnalyzer (source);
-                } else if (typeof (T) == typeof (SemanticTokensAnalyzer)) {
-                    analysis = new SemanticTokensAnalyzer (source, template_spans.get (source));
-                }
-
-                if (analysis != null) {
-                    analysis.last_updated = GLib.get_real_time ();
-                    analyses[typeof (T)] = analysis;
-                    debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
-                           typeof (T).name (), Util.ts_to_string (analysis.last_updated));
-                }
-            } finally {
-                Vala.CodeContext.pop ();
-            }
-        } else {
-            analysis = analyses[typeof (T)];
-            debug ("[SEMTOK] get_analysis_for_file: using cached %s for %s",
-                   typeof (T).name (), source.filename);
-        }
-
-        return analysis;
+        return _analysis_cache.get_analysis_for_file<T> (this, source);
     }
 
     public bool lookup_input_source_file (File file, out Vala.SourceFile input_source) {

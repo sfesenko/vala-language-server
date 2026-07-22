@@ -55,20 +55,4 @@ namespace Vls.Workspace {
             reply_json_array (json_array);
         }
     }
-
-    void search_workspace_symbols (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
-        var query = (string) @params.lookup_value ("query", VariantType.STRING);
-
-        server.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (server, client, id, method,
-                                                 null, null, null);
-            var handler = new WorkspaceSymbolHandler (ctx, query);
-            handler.run ();
-        });
-    }
 }

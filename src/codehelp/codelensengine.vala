@@ -163,24 +163,4 @@ namespace Vls.CodeLensEngine {
         }
     }
 
-    /**
-     * Dispatch a `textDocument/codeLens` request through the handler framework.
-     */
-    void begin_response (Server lang_serv, Project project,
-                         Jsonrpc.Client client, Variant id, string method,
-                         Vala.SourceFile doc, Compilation compilation) {
-        lang_serv.wait_for_context_update (id, request_cancelled => {
-            if (request_cancelled) {
-                Server.reply_null (id, client, method);
-                return;
-            }
-
-            var ctx = new Server.RequestContext (lang_serv, client, id, method,
-                                                 doc, compilation, project);
-            Server.with_code_context (compilation.code_context, () => {
-                var handler = new CodeLensHandler (ctx);
-                handler.run ();
-            });
-        }, compilation);
-    }
 }
