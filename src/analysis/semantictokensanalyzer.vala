@@ -34,7 +34,7 @@ namespace Vls {
         private ArrayList<SemanticToken> tokens = new ArrayList<SemanticToken> ();
         private Vala.TypeSymbol? current_type_symbol = null;
         private HashSet<Vala.CodeNode> visited_nodes = new HashSet<Vala.CodeNode> ();
-        private HashSet<string> emitted_tokens = new HashSet<string> ();
+        private HashSet<ulong> emitted_tokens = new HashSet<ulong> ();
 
         private struct Span {
             public long start;
@@ -122,12 +122,18 @@ namespace Vls {
         // Composite key capturing the full token identity used both to skip
         // duplicates (overlapping tokens break LSP clients) and to make
         // try_emit_token O(1) instead of O(n) per call (n = tokens emitted).
-        private string token_key (uint line, uint character, uint length, uint token_type, uint modifiers) {
-            return @"$line:$character:$length:$token_type:$modifiers";
+        // Uses uint64 hash instead of string to avoid short-lived allocations.
+        private uint64 token_key (uint line, uint character, uint length, uint token_type, uint modifiers) {
+            uint64 h = (uint64) line;
+            h = h * 31 + (uint64) character;
+            h = h * 31 + (uint64) length;
+            h = h * 31 + (uint64) token_type;
+            h = h * 31 + (uint64) modifiers;
+            return h;
         }
 
         private bool try_emit_token (uint line, uint character, uint length, uint token_type, uint modifiers) {
-            string key = token_key (line, character, length, token_type, modifiers);
+            ulong key = (ulong) token_key (line, character, length, token_type, modifiers);
             if (emitted_tokens.contains (key))
                 return false;
             emitted_tokens.add (key);

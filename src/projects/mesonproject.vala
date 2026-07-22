@@ -28,7 +28,6 @@ class Vls.MesonProject : Project {
     private bool configured_once;
     private bool requires_general_build;
     private Scheduler _scheduler;
-    private bool _warned_sync_fallback;
 
     /**
      * Substitute special arguments like `@INPUT@` and `@OUTPUT@` as they
@@ -226,38 +225,21 @@ class Vls.MesonProject : Project {
 
                 debug ("file does not exist, fallback to %s", command_str);
 
-                if (_scheduler != null) {
-                    // C2: run spawn on worker thread to avoid blocking main loop
-                    proc_stdout = _scheduler.run_sync<string> (() => {
-                        string stdout_str;
-                        int status;
-                        Process.spawn_sync (
-                            build_dir,
-                            spawn_args,
-                            null,
-                            SpawnFlags.SEARCH_PATH,
-                            null,
-                            out stdout_str,
-                            null,
-                            out status);
-                        proc_status = status;
-                        return stdout_str;
-                    });
-                } else {
-                    if (!_warned_sync_fallback) {
-                        warning ("Scheduler unavailable — Meson spawn will block main thread");
-                        _warned_sync_fallback = true;
-                    }
+                proc_stdout = _scheduler.run_sync<string> (() => {
+                    string stdout_str;
+                    int status;
                     Process.spawn_sync (
                         build_dir,
                         spawn_args,
                         null,
                         SpawnFlags.SEARCH_PATH,
                         null,
-                        out proc_stdout,
-                        out proc_stderr,
-                        out proc_status);
-                }
+                        out stdout_str,
+                        null,
+                        out status);
+                    proc_status = status;
+                    return stdout_str;
+                });
 
                 if (proc_status != 0) {
                     warning ("command `%s' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -286,36 +268,19 @@ class Vls.MesonProject : Project {
         string meson_version_proc_stderr = "";
         int meson_version_proc_status = -1;
 
-        if (_scheduler != null) {
-            // C2: run spawn on worker thread to avoid blocking main loop
-            meson_version_proc_stdout = _scheduler.run_sync<string> (() => {
-                string stdout_str;
-                Process.spawn_sync (
-                    build_dir,
-                    "meson --version".split (" "),
-                    null,
-                    SpawnFlags.SEARCH_PATH,
-                    null,
-                    out stdout_str,
-                    null,
-                    out meson_version_proc_status);
-                return stdout_str;
-            });
-        } else {
-            if (!_warned_sync_fallback) {
-                warning ("Scheduler unavailable — Meson spawn will block main thread");
-                _warned_sync_fallback = true;
-            }
+        meson_version_proc_stdout = _scheduler.run_sync<string> (() => {
+            string stdout_str;
             Process.spawn_sync (
                 build_dir,
                 "meson --version".split (" "),
                 null,
                 SpawnFlags.SEARCH_PATH,
                 null,
-                out meson_version_proc_stdout,
-                out meson_version_proc_stderr,
+                out stdout_str,
+                null,
                 out meson_version_proc_status);
-        }
+            return stdout_str;
+        });
 
         if (meson_version_proc_status != 0) {
             warning ("failed to get version, exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -348,25 +313,7 @@ class Vls.MesonProject : Project {
         if (configured_once)
             spawn_args += "--reconfigure";
 
-        if (_scheduler != null) {
-            // C2: run spawn on worker thread to avoid blocking main loop
-            _scheduler.run_sync<void> (() => {
-                Process.spawn_sync (
-                    build_dir,
-                    spawn_args,
-                    null,
-                    SpawnFlags.SEARCH_PATH,
-                    null,
-                    out proc_stdout,
-                    out proc_stderr,
-                    out proc_status);
-                return;
-            });
-        } else {
-            if (!_warned_sync_fallback) {
-                warning ("Scheduler unavailable — Meson spawn will block main thread");
-                _warned_sync_fallback = true;
-            }
+        _scheduler.run_sync<void> (() => {
             Process.spawn_sync (
                 build_dir,
                 spawn_args,
@@ -376,7 +323,7 @@ class Vls.MesonProject : Project {
                 out proc_stdout,
                 out proc_stderr,
                 out proc_status);
-        }
+        });
 
         if (proc_status != 0) {
             warning ("configuration failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -844,37 +791,19 @@ class Vls.MesonProject : Project {
             string proc_stdout = "";
             string proc_stderr = "";
 
-            if (_scheduler != null) {
-                // C2: run spawn on worker thread to avoid blocking main loop
-                proc_stdout = _scheduler.run_sync<string> (() => {
-                    string stdout_str;
-                    int status;
-                    Process.spawn_sync (
-                        build_dir,
-                        {"meson", "compile"},
-                        null,
-                        SpawnFlags.SEARCH_PATH,
-                        null,
-                        out stdout_str,
-                        null,
-                        out status);
-                    proc_status = status;
-                    return stdout_str;
-                });
-            } else {
-                if (!_warned_sync_fallback) {
-                    warning ("Scheduler unavailable — Meson spawn will block main thread");
-                    _warned_sync_fallback = true;
-                }
-                Process.spawn_sync (build_dir,
-                                    {"meson", "compile"},
-                                    null,
-                                    SpawnFlags.SEARCH_PATH,
-                                    null,
-                                    out proc_stdout,
-                                    out proc_stderr,
-                                    out proc_status);
-            }
+            proc_stdout = _scheduler.run_sync<string> (() => {
+                string stdout_str;
+                Process.spawn_sync (
+                    build_dir,
+                    {"meson", "compile"},
+                    null,
+                    SpawnFlags.SEARCH_PATH,
+                    null,
+                    out stdout_str,
+                    out proc_stderr,
+                    out proc_status);
+                return stdout_str;
+            }, cancellable);
 
             if (proc_status != 0) {
                 warning ("`meson compile' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
@@ -888,11 +817,7 @@ class Vls.MesonProject : Project {
 
     public MesonProject (string root_path, FileCache file_cache, Cancellable? cancellable = null) throws Error {
         base (root_path, file_cache);
-        try {
-            _scheduler = new Scheduler ();
-        } catch (ThreadError e) {
-            warning ("Failed to create scheduler for MesonProject: %s", e.message);
-        }
+        _scheduler = new Scheduler ();
         this.build_dir = DirUtils.make_tmp (@"vls-meson-$(str_hash (root_path))-XXXXXX");
         reconfigure_if_stale (cancellable);
     }

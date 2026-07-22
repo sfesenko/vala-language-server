@@ -369,6 +369,7 @@ namespace Vls.CompletionEngine {
         bool in_instance = false;
         bool inside_static_or_class_construct_block = false;
         var seen_props = new HashSet<string> ();
+        var visited_types = new HashSet<Vala.TypeSymbol> ();
 
         // if (best_scope.owner.source_reference != null)
         //     debug (@"[$method] best scope SR is $(best_scope.owner.source_reference)");
@@ -455,11 +456,13 @@ namespace Vls.CompletionEngine {
                     add_completions_for_type (lang_serv, project, code_style,
                                               Vala.SemanticAnalyzer.get_data_type_for_symbol (owner),
                                               (Vala.TypeSymbol) owner, completions,
-                                              best_scope, in_oce, false, seen_props);
+                                              best_scope, in_oce, false,
+                                              visited_types, seen_props);
                 // always show static members
                 add_completions_for_type (lang_serv, project, code_style,
                                           null, (Vala.TypeSymbol) owner, completions,
-                                          best_scope, in_oce, false, seen_props);
+                                          best_scope, in_oce, false,
+                                          visited_types, seen_props);
                 // suggest class members to implicitly access
                 if ((in_instance || inside_static_or_class_construct_block) && owner is Vala.Class)
                     add_completions_for_class_access (lang_serv, project, code_style,
@@ -734,7 +737,9 @@ namespace Vls.CompletionEngine {
                        bool retry_inner = true) {
         string method = "textDocument/completion";
         var code_style = compilation.get_analysis_for_file<CodeStyleAnalyzer> (doc) as CodeStyleAnalyzer;
-        Vala.Scope current_scope = scope ?? CodeHelp.get_scope_containing_node (result);
+        Vala.Scope? current_scope = scope ?? CodeHelp.get_scope_containing_node (result);
+        if (current_scope == null)
+            return;
         Vala.DataType? data_type = null;
         Vala.Symbol? symbol = null;
         // whether we are accessing `this` or `base` within a creation method
@@ -763,7 +768,8 @@ namespace Vls.CompletionEngine {
                 add_completions_for_type (lang_serv, project, code_style,
                                           data_type, data_type.type_symbol,
                                           completions, current_scope, in_oce,
-                                          is_cm_this_or_base_access);
+                                          is_cm_this_or_base_access,
+                                          new HashSet<Vala.TypeSymbol> ());
             else if (symbol is Vala.Signal && !(is_null_safe_access || is_pointer_access))
                 add_completions_for_signal (code_style, data_type, (Vala.Signal) symbol, current_scope, completions);
             else if (symbol is Vala.Namespace && !(is_null_safe_access || is_pointer_access))
@@ -781,7 +787,8 @@ namespace Vls.CompletionEngine {
                 add_completions_for_type (lang_serv, project, code_style,
                                           null, (Vala.TypeSymbol)symbol,
                                           completions, current_scope, in_oce,
-                                          is_cm_this_or_base_access);
+                                          is_cm_this_or_base_access,
+                                          new HashSet<Vala.TypeSymbol> ());
             else {
                 if (result is Vala.MemberAccess &&
                     ((Vala.MemberAccess)result).inner != null &&
@@ -1011,6 +1018,7 @@ namespace Vls.CompletionEngine {
                                    Vala.Scope current_scope,
                                    bool in_oce,
                                    bool is_cm_this_or_base_access,
+                                   Gee.Set<Vala.TypeSymbol> visited_types,
                                    Set<string> seen_props = new HashSet<string> (),
                                    Set<Vala.TypeSymbol> seen_type_symbols = new HashSet<Vala.TypeSymbol> ()) {
         if (type_symbol in seen_type_symbols)
@@ -1018,6 +1026,12 @@ namespace Vls.CompletionEngine {
         seen_type_symbols.add (type_symbol);
         bool is_instance = type != null;
         uint method_spaces = code_style != null ? code_style.average_spacing_before_parens : 1;
+
+        // Avoid redundant type-hierarchy walks when the same type is
+        // encountered at multiple scope levels.
+        if (visited_types.contains (type_symbol))
+            return;
+        visited_types.add (type_symbol);
         if (type_symbol is Vala.ObjectTypeSymbol) {
             /**
              * Complete the members of this object, such as the fields,
@@ -1140,13 +1154,15 @@ namespace Vls.CompletionEngine {
                     var class_sym = (Vala.Class) object_sym;
                     foreach (var base_type in class_sym.get_base_types ())
                         add_completions_for_type (lang_serv, project, code_style, type, base_type.type_symbol,
-                                                  completions, current_scope, in_oce, false, seen_props, seen_type_symbols);
+                                                  completions, current_scope, in_oce, false,
+                                                  visited_types, seen_props, seen_type_symbols);
                 }
                 if (object_sym is Vala.Interface) {
                     var iface_sym = (Vala.Interface) object_sym;
                     foreach (var base_type in iface_sym.get_prerequisites ())
                         add_completions_for_type (lang_serv, project, code_style, type, base_type.type_symbol,
-                                                  completions, current_scope, in_oce, false, seen_props, seen_type_symbols);
+                                                  completions, current_scope, in_oce, false,
+                                                  visited_types, seen_props, seen_type_symbols);
                 }
             }
         } else if (type_symbol is Vala.Enum) {
@@ -1196,7 +1212,7 @@ namespace Vls.CompletionEngine {
                 seen_type_symbols.add (base_enum_sym);
                 add_completions_for_type (lang_serv, project, code_style,
                     type, base_enum_sym, completions,
-                    current_scope, in_oce, false, seen_props, seen_type_symbols);
+                    current_scope, in_oce, false, visited_types, seen_props, seen_type_symbols);
             }
 
             foreach (var value_sym in enum_sym.get_values ())
@@ -1250,7 +1266,7 @@ namespace Vls.CompletionEngine {
                     else
                         add_completions_for_type (lang_serv, project, code_style,
                             type, (Vala.TypeSymbol) gerror_sym, completions,
-                            current_scope, in_oce, false, seen_props, seen_type_symbols);
+                            current_scope, in_oce, false, visited_types, seen_props, seen_type_symbols);
                 } else
                     warning ("GLib not found");
             }
@@ -1314,7 +1330,7 @@ namespace Vls.CompletionEngine {
                     seen_type_symbols.add (base_type_sym);
                     add_completions_for_type (lang_serv, project, code_style,
                         type, base_type_sym, completions,
-                        current_scope, in_oce, is_instance, seen_props, seen_type_symbols);
+                        current_scope, in_oce, is_instance, visited_types, seen_props, seen_type_symbols);
                 }
             }
         } else if (type_symbol is Vala.TypeParameter) {

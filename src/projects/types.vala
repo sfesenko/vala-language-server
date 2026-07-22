@@ -143,7 +143,8 @@ namespace Meson {
                     if (language_property == null)
                         return;
                     var tsi = Json.gobject_deserialize (typeof (Meson.TargetSourceInfo), node) as Meson.TargetSourceInfo?;
-                    assert (tsi != null);
+                    if (tsi == null)
+                        return;
                     target_sources.add (tsi);
                 });
                 val = Value (target_sources.get_type ());

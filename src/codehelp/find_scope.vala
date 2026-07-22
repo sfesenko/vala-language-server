@@ -37,7 +37,8 @@ class Vls.FindScope : Vala.CodeVisitor {
     }
 
     public FindScope (Vala.SourceFile file, Position pos, bool before_context_update = true) {
-        assert (Vala.CodeContext.get () == file.context);
+        if (Vala.CodeContext.get () != file.context)
+            Vala.CodeContext.push (file.context);
         // debug ("FindScope @ %s", pos.to_string ());
         this.context = file.context;
         this.file = file;

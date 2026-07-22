@@ -254,16 +254,16 @@ class Vls.BuildTask : BuildTarget {
 
             foreach (File file in input) {
                 FileInfo info = file.query_info (FileAttribute.TIME_MODIFIED, FileQueryInfoFlags.NONE, cancellable);
-                DateTime? file_last_modified;
+                int64 file_last_modified = 0;
 #if GLIB_2_62
-                file_last_modified = info.get_modification_date_time ();
+                { var dt = info.get_modification_date_time (); if (dt != null) file_last_modified = Util.from_datetime (dt); }
 #else
-                TimeVal time_last_modified = info.get_modification_time ();
-                file_last_modified = new DateTime.from_iso8601 (time_last_modified.to_iso8601 (), null);
+                { TimeVal time_last_modified = info.get_modification_time ();
+                   file_last_modified = (int64) time_last_modified.tv_sec * 1000000 + time_last_modified.tv_usec; }
 #endif
-                if (file_last_modified == null)
+                if (file_last_modified == 0)
                     warning ("BuildTask(%s) could not get last modified time of %s", id, file.get_path ());
-                else if (file_last_modified.compare (last_updated) > 0) {
+                else if (file_last_modified > last_updated) {
                     inputs_modified_after = true;
                     break;
                 }
@@ -306,7 +306,7 @@ class Vls.BuildTask : BuildTarget {
             // update the file metadata cache
             foreach (var file in output)
                 _file_cache.update (file, cancellable);
-            last_updated = new DateTime.now ();
+            last_updated = GLib.get_real_time ();
         }
     }
 }

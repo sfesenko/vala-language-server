@@ -24,8 +24,11 @@ void test_log_uses_project_path () {
     }
     string uri = fixture.get_uri ();
 
+    // Unique log path per run to avoid races with parallel tests.
+    string vls_log_path = Path.build_filename (root.get_path (), "vls.log");
     var launcher = new SubprocessLauncher (
         SubprocessFlags.STDIN_PIPE | SubprocessFlags.STDOUT_PIPE | SubprocessFlags.STDERR_PIPE);
+    launcher.setenv ("VLS_LOG_PATH", vls_log_path, true);
     Subprocess server;
     try {
         server = launcher.spawnv ({ server_path });
@@ -72,14 +75,13 @@ void test_log_uses_project_path () {
         } catch (Error e2) {}
     }
 
-    // Read the VLS log file (written by vls_log_handler when -Ddebug_logging is set)
-    string log_path = Path.build_filename (Environment.get_current_dir (), ".tmp", "vls.log");
+    // Read the VLS log file (written by vls_log_handler when debug logging is configured)
     string log_text = "";
     try {
-        FileUtils.get_contents (log_path, out log_text);
+        FileUtils.get_contents (vls_log_path, out log_text);
     } catch (Error e) {
-        // Server built without -Ddebug_logging → no log file produced
-        stdout.printf ("SKIP: server built without debug logging, log at %s not found\n", log_path);
+        // Server built without debug logging configured → no log file produced
+        stdout.printf ("SKIP: server built without debug logging, log at %s not found\n", vls_log_path);
         try { fixture.@delete (); root.@delete (); } catch (Error e2) {}
         return;
     }

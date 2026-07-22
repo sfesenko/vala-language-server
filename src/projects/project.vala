@@ -346,7 +346,7 @@ abstract class Vls.Project : Object {
             if (text_document.last_saved_version != text_document.version) {
                 text_document.content = text_document.last_saved_content;
                 text_document.version = text_document.last_saved_version;
-                text_document.last_updated = new DateTime.now ();
+                text_document.last_updated = GLib.get_real_time ();
                 modified = true;
             }
         }

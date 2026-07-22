@@ -326,10 +326,8 @@ class Vls.SymbolExtractor : Object {
         this.source_file = source_file;
         if (context != null)
             this.context = context;
-        else {
-            assert (Vala.CodeContext.get () == source_file.context);
+        else
             this.context = source_file.context;
-        }
         this.block = new FindScope (source_file, pos).best_block;
     }
 

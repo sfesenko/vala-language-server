@@ -41,7 +41,7 @@ namespace Vls {
          */
         protected SourceFile file;
 
-        public DateTime last_updated { get; set; }
+        public int64 last_updated { get; set; }
 
         /**
          * Returns `true` if @a node belongs to the file this analyzer was

@@ -45,16 +45,12 @@ class Vls.Server : Jsonrpc.Server {
             this.req = req;
             this.callback = (owned) callback;
         }
-        public static uint hash (PendingRequest? p) { return Request.hash (p != null ? p.req : null); }
-        public static bool equal (PendingRequest? a, PendingRequest? b) {
-            return a != null && b != null && Request.equal (a.req, b.req);
-        }
+
     }
 
     // Requests waiting for a context rebuild, each with its continuation.
-    // Fired centrally by {@link fire_pending_context_updates} when the rebuild
-    // finishes, replacing the old 200 ms poll (see perf.md Phase A3).
-    HashSet<PendingRequest> pending_requests;
+    // Keyed by Request for O(1) lookup in find_pending (L6).
+    HashMap<Request, PendingRequest> pending_requests;
 
     /**
      * True while an async compilation is in flight on a worker thread.
@@ -69,6 +65,13 @@ class Vls.Server : Jsonrpc.Server {
      * Keyed by Compilation so each target gets its own cancellable.
      */
     Gee.HashMap<Compilation, Cancellable> compile_cancellables = new Gee.HashMap<Compilation, Cancellable> ();
+
+    /**
+     * Cache for get_symbol_documentation — avoids redundant GIR lookups
+     * and comment rendering for the same symbol within a single completion
+     * request. Cleared before each completion cycle.
+     */
+    Gee.HashMap<Vala.Symbol, DocComment?> doc_cache = new Gee.HashMap<Vala.Symbol, DocComment?> ();
 
     bool shutting_down = false;
 
@@ -152,7 +155,7 @@ class Vls.Server : Jsonrpc.Server {
 
         accept_io_stream (new SimpleIOStream (input_stream, output_stream));
 
-        pending_requests = new HashSet<PendingRequest> (PendingRequest.hash, PendingRequest.equal);
+        pending_requests = new HashMap<Request, PendingRequest> (req => req.hash (), (a, b) => a.equal (b));
 
         this.projects = new HashTable<Project, ulong> (GLib.direct_hash, GLib.direct_equal);
 
@@ -579,7 +582,7 @@ class Vls.Server : Jsonrpc.Server {
         var req = new Request (id);
         var pr = find_pending (req);
         if (pr != null) {
-            pending_requests.remove (pr);
+            pending_requests.unset (req);
             pr.callback (true);
         }
     }
@@ -838,8 +841,8 @@ protected void reply_error (int code, string message) {
                    Util.project_uri (uri), fileContents.length, content_changed.to_string ());
             if (content_changed) {
                 tdoc.content = fileContents;
-                tdoc.last_updated = new DateTime.now ();
-                debug ("[SEMTOK] didOpen: set content, last_updated=%s", tdoc.last_updated.to_string ());
+                tdoc.last_updated = GLib.get_real_time ();
+                debug ("[SEMTOK] didOpen: set content, last_updated=%s", Util.ts_to_string (tdoc.last_updated));
                 request_context_update (client);
                 debug ("[textDocument/didOpen] requested context update");
             }
@@ -959,7 +962,7 @@ protected void reply_error (int code, string message) {
                     }
                 }
                 source.content = sb.str;
-                source.last_updated = new DateTime.now ();
+                source.last_updated = GLib.get_real_time ();
                 source.version = (int) version;
 
                 request_context_update (client);
@@ -1009,7 +1012,8 @@ protected void reply_error (int code, string message) {
                 return true;
             }
 
-            // Now safe to reset — we're about to start compiles.
+            // Reset the counters after confirming no compiles are in flight.
+            // If reconfigure_if_stale throws, incoming requests are not lost.
             update_context_requests = 0;
             update_context_time_us = 0;
 
@@ -1150,8 +1154,9 @@ protected void reply_error (int code, string message) {
             // rebuild the documentation
             documentation.rebuild_if_stale ();
 
-            // satisfy any requests that waited for this rebuild (perf.md A3)
-            fire_pending_context_updates ();
+            // Pending context updates are fired from the async compile
+            // callback when compile_in_progress_count reaches 0 — no
+            // unconditional fire here to avoid stale-data satisfaction.
         }
         return !this.shutting_down;
     }
@@ -1193,8 +1198,10 @@ protected void reply_error (int code, string message) {
             return;
         }
         var req = new Request (id);
-        if (!pending_requests.add (new PendingRequest (req, (owned) on_context_updated_func)))
+        if (pending_requests.has_key (req))
             warning (@"Request ($req): request already in pending requests, this should not happen");
+        else
+            pending_requests[req] = new PendingRequest (req, (owned) on_context_updated_func);
         // Safety net: if a rebuild was already in flight when we registered
         // (so fire_pending_context_updates already ran), satisfy on idle.
         Idle.add (() => {
@@ -1205,13 +1212,13 @@ protected void reply_error (int code, string message) {
             }
             // re-check per-compilation staleness on idle
             if (compilation != null && !compilation.is_stale ()) {
-                pending_requests.remove (pr);
+                pending_requests.unset (req);
                 pr.callback (false);
                 return Source.REMOVE;
             }
             // Bug #2: Also check compile_in_progress_count on idle
             if (update_context_requests == 0 && compile_in_progress_count == 0) {
-                pending_requests.remove (pr);
+                pending_requests.unset (req);
                 pr.callback (false);
             }
             // else: still pending, fire_pending_context_updates will handle it
@@ -1220,10 +1227,7 @@ protected void reply_error (int code, string message) {
     }
 
     PendingRequest? find_pending (Request req) {
-        foreach (var pr in pending_requests)
-            if (Request.equal (pr.req, req))
-                return pr;
-        return null;
+        return pending_requests[req];
     }
 
     /**
@@ -1234,9 +1238,9 @@ protected void reply_error (int code, string message) {
     void fire_pending_context_updates () {
         if (pending_requests.size == 0)
             return;
-        var fired = pending_requests.to_array ();
+        var fired = pending_requests.values.to_array ();
+        pending_requests.clear ();
         foreach (var pr in fired) {
-            pending_requests.remove (pr);
             pr.callback (false);
         }
     }
@@ -1268,7 +1272,10 @@ protected void reply_error (int code, string message) {
                 }));
                 return;
             }
-            assert (err.loc.file != null);
+            if (err.loc.file == null) {
+                warning ("diagnostic has null source file");
+                return;
+            }
             if (!(err.loc.file in target.code_context.get_source_files ())) {
                 warning (@"diagnostic has source not in compilation! - $(err.message)");
                 return;
@@ -1479,13 +1486,20 @@ protected void reply_error (int code, string message) {
 
 
     public DocComment? get_symbol_documentation (Project project, Vala.Symbol sym) {
+        // Check cache first
+        if (doc_cache.has_key (sym))
+            return doc_cache[sym];
+
         Compilation compilation = null;
         Vala.Symbol real_sym = SymbolReferences.find_real_symbol (project, sym);
         sym = real_sym;
         Vala.Symbol root = null;
         for (var node = sym; node != null; node = node.parent_symbol)
             root = node;
-        assert (root != null);
+        if (root == null) {
+            doc_cache[sym] = null;
+            return null;
+        }
         foreach (var project_compilation in project.get_compilations ()) {
             if (project_compilation.code_context.root == root) {
                 compilation = project_compilation;
@@ -1493,8 +1507,10 @@ protected void reply_error (int code, string message) {
             }
         }
 
-        if (compilation == null)
+        if (compilation == null) {
+            doc_cache[sym] = null;
             return null;
+        }
 
         Vala.Comment? comment = null;
         DocComment? doc_comment = null;
@@ -1524,10 +1540,16 @@ protected void reply_error (int code, string message) {
             }
         }
 
+        doc_cache[sym] = doc_comment;
         return doc_comment;
     }
 
+    void clear_doc_cache () {
+        doc_cache.clear ();
+    }
+
     void show_completion (Jsonrpc.Client client, string method, Variant id, Variant @params) {
+        clear_doc_cache ();
         var p = Util.parse_variant<Lsp.CompletionParams>(@params);
 
         Compilation compilation;
@@ -1580,7 +1602,10 @@ protected void reply_error (int code, string message) {
             TextEdit edited;
             var code_style = ctx.compilation.get_analysis_for_file<CodeStyleAnalyzer> (ctx.file);
             try {
-                edited = Formatter.format (p.options, code_style, ctx.file, p.range, cancellable);
+                edited = ctx.server.scheduler.run_sync<TextEdit> (() => {
+                    return Formatter.format (p.options, code_style, ctx.file,
+                                             p.range, cancellable);
+                }, cancellable);
             } catch (Error e) {
                 reply_error (Jsonrpc.ClientError.INTERNAL_ERROR, e.message);
                 warning ("Formatting failed: %s", e.message);
@@ -1785,8 +1810,11 @@ int main (string[] args) {
     // otherwise
 
     // Enable debug logging if configured via meson -Ddebug_logging=...
-    if (Config.DEBUG_LOGGING != "") {
-        string log_path = Config.DEBUG_LOGGING;
+    // or via VLS_LOG_PATH environment variable (runtime override, e.g. for tests).
+    string log_path = Environment.get_variable ("VLS_LOG_PATH");
+    if (log_path == null)
+        log_path = Config.DEBUG_LOGGING;
+    if (log_path != null && log_path != "") {
         var log_dir = File.new_for_path (Path.get_dirname (log_path));
         try {
             if (!log_dir.query_exists ())

@@ -25,7 +25,10 @@ class Vls.Request : Object {
     private string? method;
 
     public Request (Variant id, string? method = null) {
-        assert (id.is_of_type (VariantType.INT64) || id.is_of_type (VariantType.STRING));
+        if (!id.is_of_type (VariantType.INT64) && !id.is_of_type (VariantType.STRING)) {
+            warning ("Request: unexpected id type '%s'", id.get_type_string ());
+            return;
+        }
         if (id.is_of_type (VariantType.INT64))
             int_value = (int64) id;
         else
@@ -38,20 +41,21 @@ class Vls.Request : Object {
         return id_string + (method != null ? @":$method" : "");
     }
 
-    public static uint hash (Request req) {
-        if (req.int_value != null)
-            return GLib.int64_hash (req.int_value);
+    public uint hash () {
+        if (int_value != null)
+            return GLib.int64_hash (int_value);
         else
-            return GLib.str_hash (req.string_value);
+            return GLib.str_hash (string_value);
     }
 
-    public static bool equal (Request reqA, Request reqB) {
-        if (reqA.int_value != null) {
-            assert (reqB.int_value != null);
-            return reqA.int_value == reqB.int_value;
+    public bool equal (Request other) {
+        if (other == null)
+            return false;
+        if (int_value != null) {
+            return other.int_value != null && int_value == other.int_value;
         } else {
-            assert (reqB.string_value != null);
-            return reqA.string_value == reqB.string_value;
+            return other.string_value != null && string_value == other.string_value;
         }
     }
+
 }

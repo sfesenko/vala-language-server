@@ -47,7 +47,7 @@ class Vls.TextDocument : SourceFile {
      * This must be manually updated by anything that changes the content
      * of this document.
      */
-    public DateTime last_updated { get; set; default = new DateTime.now (); }
+    public int64 last_updated { get; set; default = GLib.get_real_time (); }
     public int version { get; set; }
 
     public int last_saved_version { get; private set; }

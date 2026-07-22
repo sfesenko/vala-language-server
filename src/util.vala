@@ -361,7 +361,8 @@ namespace Vls.Util {
     public ArrayList<File> find_files (File dir, Regex basename_pattern,
                                        uint max_depth = 1, Cancellable? cancellable = null,
                                        ArrayList<File> found = new ArrayList<File> ()) throws Error {
-        assert (max_depth >= 1);
+        if (max_depth < 1)
+            return found;
         FileEnumerator enumerator = dir.enumerate_children (
             "standard::*",
             FileQueryInfoFlags.NOFOLLOW_SYMLINKS,
@@ -680,5 +681,13 @@ namespace Vls.Util {
         if (path == null)
             return uri;
         return project_path (path);
+    }
+
+    public static int64 from_datetime (DateTime? dt) {
+        return dt != null ? dt.to_unix () * 1000000 + dt.get_microsecond () : 0;
+    }
+
+    public static string ts_to_string (int64 t) {
+        return new DateTime.from_unix_utc (t / 1000000).to_string ();
     }
 }

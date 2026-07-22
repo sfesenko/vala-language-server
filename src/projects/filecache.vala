@@ -32,13 +32,13 @@ class Vls.FileCache : Object {
          * the time the file was last updated if the file is the same after an
          * update.
          */
-        public DateTime last_updated { get; set; }
+        public int64 last_updated { get; set; }
 
         /**
-         * The time this file was last updated. Can be null if we're unable to
-         * query this info from the file system.
+         * The time this file was last updated, in microseconds since epoch.
+         * 0 if we're unable to query this info from the file system.
          */
-        public DateTime? file_last_updated { get; set; }
+        public int64 file_last_updated { get; set; }
 
         /**
          * The size of the file.
@@ -56,8 +56,8 @@ class Vls.FileCache : Object {
          * @param data                  data loaded from a file
          * @param last_modified         the last time the file was modified
          */
-        public ContentStatus (Bytes data, DateTime? last_modified) {
-            this.last_updated = new DateTime.now ();
+        public ContentStatus (Bytes data, int64 last_modified) {
+            this.last_updated = GLib.get_real_time ();
             this.file_last_updated = last_modified;
             this.size = data.get_size ();
             // MD5 is fastest and we don't have any security issues even if there are collisions
@@ -68,8 +68,8 @@ class Vls.FileCache : Object {
          * Create a new content status for an empty/non-existent file.
          */
         public ContentStatus.empty () {
-            this.last_updated = new DateTime.now ();
-            this.file_last_updated = null;
+            this.last_updated = GLib.get_real_time ();
+            this.file_last_updated = 0;
             this.size = 0;
             this.checksum = Checksum.compute_for_data (ChecksumType.MD5, {});
         }
@@ -91,15 +91,15 @@ class Vls.FileCache : Object {
      */
     public void update (File file, Cancellable? cancellable = null) throws Error {
         ContentStatus? status = _content_cache[file];
-        DateTime? last_modified = null;
+        int64 last_modified = 0;
         bool file_exists = false;
         try {
             FileInfo info = file.query_info (FileAttribute.TIME_MODIFIED, FileQueryInfoFlags.NONE, cancellable);
 #if GLIB_2_62
-            last_modified = info.get_modification_date_time ();
+            { var dt = info.get_modification_date_time (); if (dt != null) last_modified = Util.from_datetime (dt); }
 #else
-            TimeVal time_last_modified = info.get_modification_time ();
-            last_modified = new DateTime.from_iso8601 (time_last_modified.to_iso8601 (), null);
+            { TimeVal time_last_modified = info.get_modification_time ();
+               last_modified = (int64) time_last_modified.tv_sec * 1000000 + time_last_modified.tv_usec; }
 #endif
             file_exists = true;
         } catch (IOError.NOT_FOUND e) {
@@ -107,7 +107,7 @@ class Vls.FileCache : Object {
             // with querying the file system, we want to exit this function
         }
 
-        if (file_exists && last_modified == null)
+        if (file_exists && last_modified == 0)
             warning ("could not get last modified time of %s", file.get_uri ());
 
         if (status == null) {
@@ -121,7 +121,7 @@ class Vls.FileCache : Object {
 
         // the file is in the cache already.
         // check modification time to avoid having to recompute the hash
-        if (last_modified != null && status.file_last_updated != null && last_modified.compare (status.file_last_updated) <= 0)
+        if (last_modified != 0 && status.file_last_updated != 0 && last_modified <= status.file_last_updated)
             return;
 
         // recompute the hash

@@ -298,7 +298,9 @@ namespace Vls.SignatureHelpEngine {
         }
 
         Vala.CodeNode result = Server.get_best (fs, doc);
-        Vala.Scope scope = CodeHelp.get_scope_containing_node (result);
+        Vala.Scope? scope = CodeHelp.get_scope_containing_node (result);
+        if (scope == null)
+            return;
         // debug (@"[$method] got best: $(result.type_name) @ $(result.source_reference)");
 
         show_help (lang_serv, project, method, result, scope, compilation, signatures, ref active_param);

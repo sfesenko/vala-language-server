@@ -32,7 +32,7 @@ namespace Vls.CodeActions {
     Collection<CodeAction> extract (CodeActionContext context, Compilation compilation, TextDocument file, Range range, string uri) {
         var code_actions = new ArrayList<CodeAction> ();
 
-        if (file.last_updated.compare (compilation.last_updated) > 0)
+        if (file.last_updated > compilation.last_updated)
             // don't show code actions for a stale document
             return code_actions;
 

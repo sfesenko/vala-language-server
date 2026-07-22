@@ -230,20 +230,14 @@ namespace Vls.CodeHelp {
     /**
      * Get the nearest scope containing this node.
      */
-    public Vala.Scope get_scope_containing_node (Vala.CodeNode code_node) {
-        Vala.Scope? best = null;
-
+    public Vala.Scope? get_scope_containing_node (Vala.CodeNode code_node) {
         for (Vala.CodeNode? node = code_node; node != null; node = node.parent_node) {
             if (node is Vala.Symbol) {
                 var sym = (Vala.Symbol) node;
-                best = sym.scope;
-                break;
+                return sym.scope;
             }
         }
-
-        assert (best != null);
-
-        return (!) best;
+        return null;
     }
 
     /**

@@ -100,7 +100,9 @@ class Vls.Compilation : BuildTarget {
      */
     public Reporter reporter {
         get {
-            assert (code_context.report is Reporter);
+            if (!(code_context.report is Reporter)) {
+                error ("code_context.report is not a Reporter instance");
+            }
             return (Reporter) code_context.report;
         }
     }
@@ -478,7 +480,6 @@ class Vls.Compilation : BuildTarget {
         foreach (var source in removed_sources)
             _source_analyzers.unset (source, null);
 
-        last_updated = new DateTime.now ();
         _completed_first_compile = true;
         _packages_loaded = true;
         Vala.CodeContext.pop ();
@@ -494,14 +495,14 @@ class Vls.Compilation : BuildTarget {
             return true;
 
         foreach (Map.Entry<File, BuildTarget> dep in dependencies) {
-            if (_file_cache[dep.key].last_updated.compare (last_updated) > 0)
+            if (_file_cache[dep.key].last_updated > last_updated)
                 return true;
         }
         foreach (TextDocument doc in _project_sources.values) {
-            if (doc.last_updated.compare (last_updated) > 0) {
+            if (doc.last_updated > last_updated) {
                 debug ("[SEMTOK] is_stale: stale due to %s (lu=%s > comp_lu=%s)",
                        Util.project_path (doc.filename),
-                       doc.last_updated.to_string (), last_updated.to_string ());
+                       Util.ts_to_string (doc.last_updated), Util.ts_to_string (last_updated));
                 return true;
             }
         }
@@ -516,36 +517,36 @@ class Vls.Compilation : BuildTarget {
         bool updated_file = false;
 
         foreach (Map.Entry<File, BuildTarget> dep in dependencies) {
-            if (_file_cache[dep.key].last_updated.compare (last_updated) > 0) {
+            if (_file_cache[dep.key].last_updated > last_updated) {
                 // stale — will be caught below
                 break;
-            } else if (dep.value.last_updated.compare (last_updated) > 0) {
+            } else if (dep.value.last_updated > last_updated) {
                 // dep was updated but file is the same
                 updated_file = true;
             }
         }
 
-        if (is_stale ()) {
+        bool needs_rebuild = is_stale ();
+        if (needs_rebuild) {
             debug ("[SEMTOK] build_if_stale: recompiling");
-            var compile_start = new DateTime.now ();
+            var compile_start = GLib.get_monotonic_time ();
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
             debug ("[SEMTOK] compile: starting");
             compile ();
-            var compile_elapsed = new DateTime.now ().difference (compile_start);
-            debug ("[SEMTOK] compile: done in %.3fs, last_updated=%s",
-                   compile_elapsed / 1000000.0, last_updated.to_string ());
-        } else if (updated_file) {
-            // even if the files are unchanged after updates, we need to
-            // silently update the last_updated property of this target at the
-            // very least, in order to maintain the invariant that a build
-            // target is always "last updated" after its dependencies
-            last_updated = new DateTime.now ();
+            var compile_elapsed = GLib.get_monotonic_time () - compile_start;
+            debug ("[SEMTOK] compile: done in %.3fs",
+                   compile_elapsed / 1000000.0);
         }
 
         // update all output files
         foreach (var file in output)
             _file_cache.update (file, cancellable);
+
+        // update last_updated AFTER file cache updates so is_stale()
+        // doesn't think files are newer than the compilation
+        if (needs_rebuild || updated_file)
+            last_updated = GLib.get_real_time ();
     }
 
     /**
@@ -559,7 +560,7 @@ class Vls.Compilation : BuildTarget {
         public HashMap<Vala.CodeNode, int> method_calls;
         public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans;
         public HashMap<string, Vala.Symbol> cname_to_sym;
-        public DateTime last_updated;
+        public int64 last_updated;
     }
 
     /**
@@ -622,14 +623,24 @@ class Vls.Compilation : BuildTarget {
         var genie_parser = new Vala.Genie.Parser ();
         var gir_parser = new Vala.GirParser ();
         vala_parser.parse (worker_ctx);
+        if (cancellable != null)
+            cancellable.set_error_if_cancelled ();
         genie_parser.parse (worker_ctx);
+        if (cancellable != null)
+            cancellable.set_error_if_cancelled ();
         gir_parser.parse (worker_ctx);
 
         // AST walks (inlay hints + templates) on worker
-        foreach (var source_file in worker_ctx.get_source_files ())
+        foreach (var source_file in worker_ctx.get_source_files ()) {
             source_file.accept (new InlayHintNodes (result.var_decls, result.method_calls));
-        foreach (var source_file in worker_ctx.get_source_files ())
+            if (cancellable != null)
+                cancellable.set_error_if_cancelled ();
+        }
+        foreach (var source_file in worker_ctx.get_source_files ()) {
             source_file.accept (new TemplateNodes (result.template_spans));
+            if (cancellable != null)
+                cancellable.set_error_if_cancelled ();
+        }
 
         // Check cancellation before the expensive type-check —
         // this is the dominant cost and the best place to bail out.
@@ -638,6 +649,8 @@ class Vls.Compilation : BuildTarget {
 
         // Type check
         worker_ctx.check ();
+        if (cancellable != null)
+            cancellable.set_error_if_cancelled ();
 
         // C name map
         foreach (Vala.SourceFile source_file in worker_ctx.get_source_files ()) {
@@ -645,7 +658,7 @@ class Vls.Compilation : BuildTarget {
                 source_file.accept (new CNameMapper (result.cname_to_sym));
         }
 
-        result.last_updated = new DateTime.now ();
+        result.last_updated = GLib.get_real_time ();
         Vala.CodeContext.pop ();
         return result;
     }
@@ -705,12 +718,18 @@ class Vls.Compilation : BuildTarget {
             interface_writer.write_file (code_context, _output_internal_vapi);
         }
 
-        // Remove analyses for sources no longer in the code context
-        var removed_sources = new Vala.HashSet<Vala.SourceFile> ();
-        removed_sources.add_all (code_context.get_source_files ());
-        foreach (var entry in _project_sources)
-            removed_sources.remove (entry.value);
-        foreach (var source in removed_sources)
+        // Remove analyses for sources no longer in the code context.
+        // Use filenames for comparison since worker-thread SourceFiles
+        // have different object identity than main-thread ones.
+        var new_filenames = new HashSet<string> ();
+        foreach (var source in code_context.get_source_files ())
+            new_filenames.add (source.filename);
+        var removed_analyzers = new ArrayList<Vala.SourceFile> ();
+        foreach (var entry in _source_analyzers) {
+            if (!new_filenames.contains (entry.key.filename))
+                removed_analyzers.add (entry.key);
+        }
+        foreach (var source in removed_analyzers)
             _source_analyzers.unset (source, null);
 
         // Update TextDocument contexts to point to the new code_context
@@ -731,11 +750,11 @@ class Vls.Compilation : BuildTarget {
         // generate the analysis on demand if it doesn't exist or it is stale
         AbstractAnalyzer? analysis = null;
         bool has_cached = analyses.has_key (typeof (T));
-        if (!has_cached || analyses[typeof (T)].last_updated.compare (last_updated) < 0) {
+        if (!has_cached || analyses[typeof (T)].last_updated < last_updated) {
             if (has_cached)
                 debug ("[SEMTOK] get_analysis_for_file: stale %s for %s (analysis_lu=%s < comp_lu=%s)",
                        typeof (T).name (), source.filename,
-                       analyses[typeof (T)].last_updated.to_string (), last_updated.to_string ());
+                       Util.ts_to_string (analyses[typeof (T)].last_updated), Util.ts_to_string (last_updated));
             else
                 debug ("[SEMTOK] get_analysis_for_file: no cached %s for %s, creating",
                        typeof (T).name (), source.filename);
@@ -752,10 +771,10 @@ class Vls.Compilation : BuildTarget {
                 }
 
                 if (analysis != null) {
-                    analysis.last_updated = new DateTime.now ();
+                    analysis.last_updated = GLib.get_real_time ();
                     analyses[typeof (T)] = analysis;
                     debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
-                           typeof (T).name (), analysis.last_updated.to_string ());
+                           typeof (T).name (), Util.ts_to_string (analysis.last_updated));
                 }
             } finally {
                 Vala.CodeContext.pop ();

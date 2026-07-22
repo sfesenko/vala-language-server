@@ -39,7 +39,7 @@ abstract class Vls.BuildTarget : Object, Hashable<BuildTarget> {
     /**
      * The time this target was last updated. Defaults to the start of the Unix epoch.
      */
-    public DateTime last_updated { get; protected set; default = new DateTime.from_unix_utc (0); }
+    public int64 last_updated { get; protected set; default = 0; }
 
     protected BuildTarget (string output_dir, string name, string id, int no) {
         Object (output_dir: output_dir, name: name, id: id, no: no);
