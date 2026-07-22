@@ -75,7 +75,19 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
             dsym = ns_name_to_dsym [sym_full_name];
             unique = false;
         } else {
-            dsym = new DocumentSymbol.from_vala_symbol (null, sym, kind);
+            dsym = new DocumentSymbol ();
+            Vala.SourceReference? body_sref = null;
+            if (sym is Vala.Subroutine) {
+                var sub = (Vala.Subroutine) sym;
+                body_sref = sub.body != null ? sub.body.source_reference : null;
+            }
+            dsym.set_initial_range_from_sourceref (sym.source_reference, body_sref);
+            dsym.parent_name = sym.parent_symbol != null ? sym.parent_symbol.name : null;
+            dsym.name = sym.name;
+            dsym.detail = Vls.CodeHelp.get_symbol_representation (null, sym, null, false);
+            dsym.kind = kind;
+            dsym.selectionRange = new Range.from_sourceref (sym.source_reference);
+            dsym.deprecated = sym.version.deprecated;
         }
 
         // handle conflicts

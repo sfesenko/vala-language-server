@@ -102,10 +102,10 @@ namespace Vls.Foundation {
             return null;
         long from = index != null
             ? index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1))
-            : (long) Util.get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+            : (long) get_string_pos (buf, (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
         long to = index != null
             ? index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column)
-            : (long) Util.get_string_pos (buf, (uint) (sr.end.line - 1), (uint) sr.end.column);
+            : (long) get_string_pos (buf, (uint) (sr.end.line - 1), (uint) sr.end.column);
         if (to < from)
             return null;
         return buf[from:to];
@@ -287,6 +287,41 @@ namespace Vls.Foundation {
             }
             return cur;
         }
+    }
+
+    /**
+     * Byte offset of the [charno]-th UTF-8 code point on [line] (both zero-based).
+     * O(buffer) — prefer {@link LineIndex.byte_offset_for_char} for repeated calls
+     * against the same buffer.
+     */
+    public static size_t get_string_pos (string str, uint lineno, uint charno) {
+        int pos = 0;
+        unowned string curstr = str;
+        for (uint lno = 0; lno < lineno; ++lno) {
+            int rel_idx = curstr.index_of_char ('\n');
+            if (rel_idx == -1)
+                break;
+            pos += rel_idx;
+            curstr = curstr.offset (rel_idx);
+            if (curstr[1] != '\0') {
+                pos++;
+                curstr = curstr.offset (1);
+            } else {
+                break;
+            }
+        }
+        return pos + curstr.index_of_nth_char (charno);
+    }
+
+    /**
+     * Length of [line] (zero-based) in the buffer, in bytes (excluding trailing newline).
+     */
+    public static size_t line_byte_length (string content, uint line) {
+        long line_start = (long) get_string_pos (content, line, 0);
+        long pos = line_start;
+        while (pos < content.length && content[pos] != '\n')
+            pos++;
+        return (uint) (pos - line_start);
     }
 
     /**

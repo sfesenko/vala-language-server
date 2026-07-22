@@ -75,33 +75,6 @@ namespace Vls.Util {
     }
 
     /**
-     * Gets the offset, in bytes, of the UTF-8 character at the given line and
-     * position.
-     * Both lineno and charno must be zero-indexed.
-     */
-    public static size_t get_string_pos (string str, uint lineno, uint charno) {
-        int pos = 0;
-        unowned string curstr = str;
-
-        for (uint lno = 0; lno < lineno; ++lno) {
-            int rel_idx = curstr.index_of_char ('\n');
-            if (rel_idx == -1)
-                break;
-            pos += rel_idx;
-            curstr = curstr.offset (rel_idx);
-            if (curstr[1] != '\0') {
-                // skip past the newline
-                pos++;
-                curstr = curstr.offset (1);
-            } else {
-                break;
-            }
-        }
-
-        return pos + curstr.index_of_nth_char (charno);
-    }
-
-    /**
      * Gets the line and column of the pattern in [str]. Advances [lineno] and [charno] past the end of the pattern.
      */
     public static void advance_past (string str, Regex pattern, ref uint lineno, ref uint charno) {
@@ -537,14 +510,6 @@ namespace Vls.Util {
                 return pos;
             search_start = pos + 1;
         }
-    }
-
-    public uint line_byte_length (string content, uint line) {
-        long line_start = (long) get_string_pos (content, line, 0);
-        long pos = line_start;
-        while (pos < content.length && content[pos] != '\n')
-            pos++;
-        return (uint) (pos - line_start);
     }
 
     public uint sym_token_type (Vala.Symbol? sym) {

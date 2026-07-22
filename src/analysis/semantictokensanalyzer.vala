@@ -112,7 +112,7 @@ namespace Vls {
             if (line_index != null)
                 return (uint) line_index.byte_length_of_line (line);
             var c = Vls.Foundation.buffer_for (file);
-            return c != null ? Util.line_byte_length (c, line) : 0;
+            return c != null ? (uint) Vls.Foundation.line_byte_length (c, line) : 0;
         }
 
         public ArrayList<SemanticToken> get_tokens () {

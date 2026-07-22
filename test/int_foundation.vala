@@ -138,7 +138,7 @@ void test_line_index_byte_length_of_line () {
 
     // matches Vls.Util.line_byte_length on the same buffer
     for (uint l = 0; l < idx.line_count; l++)
-        assert (idx.byte_length_of_line (l) == Vls.Util.line_byte_length (buf, l));
+        assert (idx.byte_length_of_line (l) == Vls.Foundation.line_byte_length (buf, l));
 }
 
 void test_slice_sourceref_with () {
@@ -164,7 +164,7 @@ void test_slice_sourceref_with () {
 void test_offset_to_position () {
     var buf = "line0\nline1\nline2";
     // roundtrip with get_string_pos
-    var p = Vls.Foundation.offset_to_position (buf, (long) Vls.Util.get_string_pos (buf, 1, 2));
+    var p = Vls.Foundation.offset_to_position (buf, (long) Vls.Foundation.get_string_pos (buf, 1, 2));
     assert (p.line == 1 && p.character == 2);
 
     // start of buffer
@@ -173,12 +173,12 @@ void test_offset_to_position () {
 
     // UTF-8 multibyte
     var ubuf = "héllo\nwörld";
-    p = Vls.Foundation.offset_to_position (ubuf, (long) Vls.Util.get_string_pos (ubuf, 1, 1));
+    p = Vls.Foundation.offset_to_position (ubuf, (long) Vls.Foundation.get_string_pos (ubuf, 1, 1));
     assert (p.line == 1 && p.character == 1);
 
     // CRLF
     var crlf = "a\r\nb";
-    p = Vls.Foundation.offset_to_position (crlf, (long) Vls.Util.get_string_pos (crlf, 1, 0));
+    p = Vls.Foundation.offset_to_position (crlf, (long) Vls.Foundation.get_string_pos (crlf, 1, 0));
     assert (p.line == 1 && p.character == 0);
 
     // out-of-range clamps to end of buffer

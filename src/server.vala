@@ -22,7 +22,7 @@ using Gee;
 
 class Vls.Server : Jsonrpc.Server {
     private static bool received_signal = false;
-    public static Server instance { get; private set; }
+
     public Lsp.TraceValue trace { get; set; default = Lsp.TraceValue.VERBOSE; }
     MainLoop loop;
     Scheduler scheduler;
@@ -113,7 +113,6 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     public Server (MainLoop loop) throws ThreadError {
-        Server.instance = this;
         this.loop = loop;
         this.scheduler = new Scheduler ();
 
@@ -1749,8 +1748,7 @@ private static string log_level_name (LogLevelFlags levels) {
     }
 }
 
-void vls_log_handler (string? domain, LogLevelFlags levels, string message) {
-    var sv = Vls.Server.instance;
+void vls_log_handler (Vls.Server? sv, string? domain, LogLevelFlags levels, string message) {
     if (sv != null) {
         bool is_debug = (levels & LogLevelFlags.LEVEL_DEBUG) != 0;
         bool is_info = (levels & LogLevelFlags.LEVEL_INFO) != 0;
@@ -1829,13 +1827,16 @@ int main (string[] args) {
             uint glib_warn_id = Log.set_handler ("GLib", LogLevelFlags.LEVEL_WARNING, (d, l, m) => {});
             Environment.set_variable ("G_MESSAGES_DEBUG", "all", false);
             Log.remove_handler ("GLib", glib_warn_id);
-            Log.set_default_handler (vls_log_handler);
         }
     }
 
     var loop = new MainLoop ();
     try {
-        new Vls.Server (loop);
+        var sv = new Vls.Server (loop);
+        if (vls_log_file != null)
+            Log.set_default_handler ((domain, levels, message) => {
+                vls_log_handler (sv, domain, levels, message);
+            });
     } catch (ThreadError e) {
         error ("Failed to create scheduler: %s", e.message);
     }

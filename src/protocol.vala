@@ -20,6 +20,26 @@
 
 namespace Lsp {
     /**
+     * Base class for LSP types, eliminating 5-method Json.Serializable boilerplate.
+     */
+    abstract class SerializableObject : Object, Json.Serializable {
+        public new void set_property (ParamSpec pspec, Value value) {
+            base.set_property (pspec.get_name (), value);
+        }
+        public new Value get_property (ParamSpec pspec) {
+            Value val = Value (pspec.value_type);
+            base.get_property (pspec.get_name (), ref val);
+            return val;
+        }
+        public virtual Json.Node serialize_property (string name, Value val, ParamSpec pspec) {
+            return default_serialize_property (name, val, pspec);
+        }
+        public bool deserialize_property (string name, out Value val, ParamSpec pspec, Json.Node node) {
+            return default_deserialize_property (name, out val, pspec, node);
+        }
+    }
+
+    /**
      * Defines how the host (editor) should sync document changes to the language server.
      */
     [CCode (default_value = "LSP_TEXT_DOCUMENT_SYNC_KIND_Unset")]
@@ -297,7 +317,7 @@ namespace Lsp {
         public TextDocumentIdentifier textDocument { get; set; }
     }
 
-    class DocumentSymbol : Object, Json.Serializable {
+    class DocumentSymbol : SerializableObject {
         private Vala.SourceReference? _source_reference;
         public string name { get; set; }
         public string? detail { get; set; }
@@ -317,60 +337,23 @@ namespace Lsp {
         public Gee.List<DocumentSymbol> children { get; private set; default = new Gee.LinkedList<DocumentSymbol> (); }
         public string? parent_name;
 
-        private DocumentSymbol () {}
+        internal DocumentSymbol () {}
 
-        /**
-         * @param type the data type containing this symbol, if there was one (not available for Namespaces, for example)
-         * @param sym the symbol
-         */
-        public DocumentSymbol.from_vala_symbol (Vala.DataType? type, Vala.Symbol sym, SymbolKind kind) {
-            this.parent_name = sym.parent_symbol != null ? sym.parent_symbol.name : null;
-            this._initial_range = new Range.from_sourceref (sym.source_reference);
-            if (sym is Vala.Subroutine) {
-                var sub = (Vala.Subroutine) sym;
-                var body_sref = sub.body != null ? sub.body.source_reference : null;
-                // debug ("subroutine %s found (body @ %s)", sym.get_full_name (),
-                //         body_sref != null ? body_sref.to_string () : null);
-                if (body_sref != null && (body_sref.begin.line < body_sref.end.line ||
-                                          body_sref.begin.line == body_sref.end.line
-                                          && body_sref.begin.pos <= body_sref.end.pos)) {
-                    this._initial_range = this._initial_range.union (new Range.from_sourceref (body_sref));
-                }
-            }
-            this.name = sym.name;
-            this.detail = Vls.CodeHelp.get_symbol_representation (type, sym, null, false);
-            this.kind = kind;
-            this.selectionRange = new Range.from_sourceref (sym.source_reference);
-            this.deprecated = sym.version.deprecated;
+        internal void set_initial_range_from_sourceref (Vala.SourceReference sref, Vala.SourceReference? extra = null) {
+            _initial_range = new Range.from_sourceref (sref);
+            if (extra != null)
+                _initial_range = _initial_range.union (new Range.from_sourceref (extra));
         }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value (pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
             if (property_name != "children")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
             foreach (var child in children)
                 array.add_element (Json.gobject_serialize (child));
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 
@@ -418,37 +401,19 @@ namespace Lsp {
         TypeParameter = 26
     }
 
-    class CompletionList : Object, Json.Serializable {
+    class CompletionList : SerializableObject {
         public bool isIncomplete { get; set; }
         public Gee.List<CompletionItem> items { get; private set; default = new Gee.LinkedList<CompletionItem> (); }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value(pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+        public override Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
             if (property_name != "items")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
             foreach (var child in items)
                 array.add_element (Json.gobject_serialize (child));
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 
@@ -508,7 +473,7 @@ namespace Lsp {
         Snippet = 2,
     }
 
-    class CompletionItem : Object, Gee.Hashable<CompletionItem>, Json.Serializable {
+    class CompletionItem : SerializableObject, Gee.Hashable<CompletionItem> {
         public string label { get; set; }
         public CompletionItemKind kind { get; set; }
         public string detail { get; set; }
@@ -604,23 +569,9 @@ namespace Lsp {
             return other.label == this.label && other.kind == this.kind;
         }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value(pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "tags")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
 
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
@@ -630,10 +581,6 @@ namespace Lsp {
             }
 
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 
@@ -725,30 +672,16 @@ namespace Lsp {
         public ClientCapabilities capabilities { get; set; default = new ClientCapabilities (); }
     }
 
-    class SignatureInformation : Object, Json.Serializable {
+    class SignatureInformation : SerializableObject {
         public string label { get; set; }
         public MarkupContent documentation { get; set; }
 
         public Gee.List<ParameterInformation> parameters { get; private set;
             default = new Gee.LinkedList<ParameterInformation> (); }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value(pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "parameters")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
@@ -756,21 +689,17 @@ namespace Lsp {
                 array.add_element (Json.gobject_serialize (child));
             return node;
         }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
-        }
     }
 
-    class SignatureHelp : Object, Json.Serializable {
+    class SignatureHelp : SerializableObject {
         public Gee.Collection<SignatureInformation> signatures { get; set;
             default = new Gee.ArrayList<SignatureInformation> (); }
         public int activeSignature { get; set; }
         public int activeParameter { get; set; }
 
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "signatures")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
 
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
@@ -778,10 +707,6 @@ namespace Lsp {
             foreach (var child in signatures)
                 array.add_element (Json.gobject_serialize (child));
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 
@@ -795,27 +720,13 @@ namespace Lsp {
         public string value { get; set; }
     }
 
-    class Hover : Object, Json.Serializable {
+    class Hover : SerializableObject {
         public Gee.List<MarkedString> contents { get; set; default = new Gee.ArrayList<MarkedString> (); }
         public Range range { get; set; }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value(pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "contents")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
@@ -826,10 +737,6 @@ namespace Lsp {
                     array.add_element (new Json.Node (Json.NodeType.VALUE).init_string (child.value));
             }
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 
@@ -864,7 +771,7 @@ namespace Lsp {
      * {@link TextDocumentEdit} doesn’t need to sort the array of edits or do any kind
      * of ordering. However the edits must be non overlapping.
      */
-    class TextDocumentEdit : Object, Json.Serializable {
+    class TextDocumentEdit : SerializableObject {
         /**
          * The text document to change.
          */
@@ -891,13 +798,9 @@ namespace Lsp {
             }
             return node;
         }
-
-        public bool deserialize_property (string property_name, out GLib.Value value, GLib.ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
-        }
     }
 
-    abstract class CommandLike : Object, Json.Serializable {
+    abstract class CommandLike : SerializableObject {
         /**
          * The identifier of the actual command handler.
          */
@@ -1019,7 +922,7 @@ namespace Lsp {
         public CodeActionContext context { get; set; }
     }
 
-    class CodeActionContext : Object, Json.Serializable {
+    class CodeActionContext : SerializableObject {
         public Gee.List<Diagnostic> diagnostics { get; set; default = new Gee.ArrayList<Diagnostic> (); }
         public string[]? only { get; set; }
 
@@ -1039,7 +942,7 @@ namespace Lsp {
         }
     }
 
-    class CodeAction : Object, Json.Serializable {
+    class CodeAction : SerializableObject {
         public string title { get; set; }
         public string? kind { get; set; }
         public Gee.Collection<Diagnostic>? diagnostics { get; set; }
@@ -1066,7 +969,7 @@ namespace Lsp {
         }
     }
 
-    class WorkspaceEdit : Object, Json.Serializable {
+    class WorkspaceEdit : SerializableObject {
         public Gee.List<TextDocumentEdit>? documentChanges { get; set; }
 
         public Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
@@ -1091,7 +994,7 @@ namespace Lsp {
         DEPRECATED
     }
 
-    class CallHierarchyItem : Object, Json.Serializable {
+    class CallHierarchyItem : SerializableObject {
         public string name { get; set; }
         public SymbolKind kind { get; set; }
         public SymbolTags tags { get; set; }
@@ -1140,7 +1043,7 @@ namespace Lsp {
         }
     }
 
-    class CallHierarchyIncomingCall : Json.Serializable, Object {
+    class CallHierarchyIncomingCall : SerializableObject {
         /**
          * The method that calls the query method.
          */
@@ -1161,7 +1064,7 @@ namespace Lsp {
         }
     }
 
-    class CallHierarchyOutgoingCall : Json.Serializable, Object {
+    class CallHierarchyOutgoingCall : SerializableObject {
         /**
          * The method that the query method calls.
          */
@@ -1182,7 +1085,7 @@ namespace Lsp {
         }
     }
 
-    class InlayHintParams : Json.Serializable, Object {
+    class InlayHintParams : SerializableObject {
         public TextDocumentIdentifier textDocument { get; set; }
         public Range range { get; set; }
     }
@@ -1202,7 +1105,7 @@ namespace Lsp {
         public bool paddingRight { get; set; }
     }
 
-    class TypeHierarchyItem : Object, Json.Serializable {
+    class TypeHierarchyItem : SerializableObject {
         /**
          * The name of this item
          */
@@ -1333,27 +1236,13 @@ namespace Lsp {
         public Gee.ArrayList<uint>? data { get; set; }
     }
 
-    class SemanticTokens : Object, Json.Serializable {
+    class SemanticTokens : SerializableObject {
         public string? resultId { get; set; }
         public Gee.ArrayList<uint> data { get; private set; default = new Gee.ArrayList<uint> (); }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value (pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "data")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
@@ -1361,43 +1250,21 @@ namespace Lsp {
                 array.add_int_element (val);
             return node;
         }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
-        }
     }
 
-    class SemanticTokensDelta : Object, Json.Serializable {
+    class SemanticTokensDelta : SerializableObject {
         public string? resultId { get; set; }
         public Gee.ArrayList<SemanticTokensEdit> edits { get; private set; default = new Gee.ArrayList<SemanticTokensEdit> (); }
 
-        public new void Json.Serializable.set_property (ParamSpec pspec, Value value) {
-            base.set_property (pspec.get_name (), value);
-        }
-
-        public new Value Json.Serializable.get_property (ParamSpec pspec) {
-            Value val = Value (pspec.value_type);
-            base.get_property (pspec.get_name (), ref val);
-            return val;
-        }
-
-        public unowned ParamSpec? find_property (string name) {
-            return this.get_class ().find_property (name);
-        }
-
-        public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
+public override Json.Node serialize_property (string property_name, GLib.Value value, GLib.ParamSpec pspec) {
             if (property_name != "edits")
-                return default_serialize_property (property_name, value, pspec);
+                return base.serialize_property (property_name, value, pspec);
             var node = new Json.Node (Json.NodeType.ARRAY);
             node.init_array (new Json.Array ());
             var array = node.get_array ();
             foreach (var edit in edits)
                 array.add_element (Json.gobject_serialize (edit));
             return node;
-        }
-
-        public bool deserialize_property (string property_name, out Value value, ParamSpec pspec, Json.Node property_node) {
-            error ("deserialization not supported");
         }
     }
 }

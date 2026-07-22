@@ -36,9 +36,9 @@ void test_compare_versions () {
 }
 
 void test_get_string_pos () {
-    size_t pos = get_string_pos ("line0\nline1\nline2", 1, 2);
+    size_t pos = Vls.Foundation.get_string_pos ("line0\nline1\nline2", 1, 2);
     assert (pos == 8);
-    pos = get_string_pos ("abc", 0, 0);
+    pos = Vls.Foundation.get_string_pos ("abc", 0, 0);
     assert (pos == 0);
 }
 
@@ -102,12 +102,12 @@ void test_find_name_in_text () {
 }
 
  void test_line_byte_length () {
-    assert (line_byte_length ("hello\nworld", 0) == 5);
-    assert (line_byte_length ("hello\nworld", 1) == 5);
-    assert (line_byte_length ("single", 0) == 6);
-    assert (line_byte_length ("\n\n", 0) == 0);
-    assert (line_byte_length ("\n\n", 1) == 0);
-    assert (line_byte_length ("abc\n\ndef", 1) == 0);
+    assert (Vls.Foundation.line_byte_length ("hello\nworld", 0) == 5);
+    assert (Vls.Foundation.line_byte_length ("hello\nworld", 1) == 5);
+    assert (Vls.Foundation.line_byte_length ("single", 0) == 6);
+    assert (Vls.Foundation.line_byte_length ("\n\n", 0) == 0);
+    assert (Vls.Foundation.line_byte_length ("\n\n", 1) == 0);
+    assert (Vls.Foundation.line_byte_length ("abc\n\ndef", 1) == 0);
 }
 
 void test_textdocument_byte_offset () {
