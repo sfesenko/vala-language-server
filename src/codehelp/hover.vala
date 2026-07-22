@@ -136,7 +136,7 @@ namespace Vls.HoverHandler {
                 });
 
                 if (symbol != null) {
-                    var comment = ctx.server.get_symbol_documentation (ctx.project, symbol);
+                    var comment = ctx.doc_engine.get_symbol_documentation (ctx.project, symbol);
                     if (comment != null) {
                         hoverInfo.contents.add (new MarkedString () {
                             value = comment.body

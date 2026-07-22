@@ -33,10 +33,7 @@ class Vls.Server : Jsonrpc.Server {
     const int64 update_context_delay_inc_us = 500 * 1000;
     const int64 update_context_delay_max_us = 1000 * 1000;
 
-    /**
-     * Contains documentation from found GIR files.
-     */
-    GirDocumentation documentation;
+    internal DocumentationEngine doc_engine;
 
     class PendingRequest {
         public Request req;
@@ -66,12 +63,7 @@ class Vls.Server : Jsonrpc.Server {
      */
     Gee.HashMap<Compilation, Cancellable> compile_cancellables = new Gee.HashMap<Compilation, Cancellable> ();
 
-    /**
-     * Cache for get_symbol_documentation — avoids redundant GIR lookups
-     * and comment rendering for the same symbol within a single completion
-     * request. Cleared before each completion cycle.
-     */
-    Gee.HashMap<Vala.Symbol, DocComment?> doc_cache = new Gee.HashMap<Vala.Symbol, DocComment?> ();
+
 
     bool shutting_down = false;
 
@@ -557,7 +549,7 @@ class Vls.Server : Jsonrpc.Server {
             packages.add_all (project.get_packages ());
             custom_gir_dirs.add_all (project.get_custom_gir_dirs ());
         }
-        documentation = new GirDocumentation (packages, custom_gir_dirs);
+        doc_engine = new DocumentationEngine (new GirDocumentation (packages, custom_gir_dirs));
 
         // listen for context update requests
         update_context_client = client;
@@ -677,8 +669,39 @@ class Vls.Server : Jsonrpc.Server {
      * Context passed to a {@link RequestHandler}. Carries everything a handler
      * needs so feature functions stop taking 9 positional arguments.
      */
+    /**
+     * Thin wrapper around Server instance methods that handlers need,
+     * breaking the circular dependency Server ↔ handler files.
+     */
+    public class ServiceProvider : Object {
+        private weak Server _server;
+
+        internal ServiceProvider (Server server) {
+            _server = server;
+        }
+
+        public Vala.SourceFile? find_file (string uri, out Compilation? compilation, out Project? project) {
+            return _server.find_file (uri, out compilation, out project);
+        }
+
+        public void wait_for_context_update (Variant id, owned Server.OnContextUpdatedFunc callback,
+                                              Compilation? compilation = null) {
+            _server.wait_for_context_update (id, (owned) callback, compilation);
+        }
+
+        public HashTable<Project, ulong> projects {
+            get { return _server.projects; }
+        }
+
+        public DefaultProject default_project {
+            get { return _server.default_project; }
+        }
+    }
+
     public class RequestContext {
         public Server server;
+        public ServiceProvider services { get; private set; }
+        public DocumentationEngine doc_engine { get; private set; }
         public Jsonrpc.Client client;
         public Variant id;
         public string method;
@@ -691,6 +714,8 @@ class Vls.Server : Jsonrpc.Server {
                                 Vala.SourceFile? file, Compilation? compilation, Project? project,
                                 Lsp.Position? pos = null) {
             this.server = server;
+            this.services = new ServiceProvider (server);
+            this.doc_engine = server.doc_engine;
             this.client = client;
             this.id = id;
             this.method = method;
@@ -804,7 +829,7 @@ protected void reply_error (int code, string message) {
                 // it's possible that we opened a Vala script and have to
                 // include additional packages for documentation
                 foreach (var pkg in default_project.get_packages ())
-                    documentation.add_package_from_source_file (pkg);
+                    doc_engine.gir.add_package_from_source_file (pkg);
                 // show diagnostics for the newly-opened file
                 request_context_update (client);
                 // Bug #154: warn when a .vala/.gs file falls to default project
@@ -1151,7 +1176,7 @@ protected void reply_error (int code, string message) {
             }
 
             // rebuild the documentation
-            documentation.rebuild_if_stale ();
+            doc_engine.gir.rebuild_if_stale ();
 
             // Pending context updates are fired from the async compile
             // callback when compile_in_progress_count reaches 0 — no
@@ -1485,66 +1510,11 @@ protected void reply_error (int code, string message) {
 
 
     public DocComment? get_symbol_documentation (Project project, Vala.Symbol sym) {
-        // Check cache first
-        if (doc_cache.has_key (sym))
-            return doc_cache[sym];
-
-        Compilation compilation = null;
-        Vala.Symbol real_sym = SymbolReferences.find_real_symbol (project, sym);
-        sym = real_sym;
-        Vala.Symbol root = null;
-        for (var node = sym; node != null; node = node.parent_symbol)
-            root = node;
-        if (root == null) {
-            doc_cache[sym] = null;
-            return null;
-        }
-        foreach (var project_compilation in project.get_compilations ()) {
-            if (project_compilation.code_context.root == root) {
-                compilation = project_compilation;
-                break;
-            }
-        }
-
-        if (compilation == null) {
-            doc_cache[sym] = null;
-            return null;
-        }
-
-        Vala.Comment? comment = null;
-        DocComment? doc_comment = null;
-        var gir_sym = documentation.find_gir_symbol (sym);
-        if (gir_sym != null && gir_sym.comment != null)
-            comment = gir_sym.comment;
-        else
-            comment = sym.comment;
-
-        if (comment != null) {
-            try {
-                if (comment is Vala.GirComment || gir_sym != null && gir_sym.comment == comment)
-                    doc_comment = new DocComment.from_gir_comment (comment, documentation, compilation);
-                else
-                    doc_comment = new DocComment.from_valadoc_comment (comment, sym, compilation);
-            } catch (RegexError e) {
-                warning ("failed to render comment - %s", e.message);
-            }
-        }
-
-        if (doc_comment == null && sym is Vala.Parameter) {
-            var parent_doc = get_symbol_documentation (project, sym.parent_symbol);
-            if (parent_doc != null) {
-                string? doc = parent_doc.parameters[sym.name];
-                if (doc != null)
-                    doc_comment = new DocComment (doc);
-            }
-        }
-
-        doc_cache[sym] = doc_comment;
-        return doc_comment;
+        return doc_engine.get_symbol_documentation (project, sym);
     }
 
     void clear_doc_cache () {
-        doc_cache.clear ();
+        doc_engine.clear_cache ();
     }
 
     void show_completion (Jsonrpc.Client client, string method, Variant id, Variant @params) {

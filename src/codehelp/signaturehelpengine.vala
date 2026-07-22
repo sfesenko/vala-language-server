@@ -240,7 +240,7 @@ namespace Vls.SignatureHelpEngine {
                                                        coroutine_name, true, false, ellipsis_override_params);
         DocComment? doc_comment = null;
         if (explicit_sym != null) {
-            doc_comment = lang_serv.get_symbol_documentation (project, explicit_sym);
+            doc_comment = lang_serv.doc_engine.get_symbol_documentation (project, explicit_sym);
             if (doc_comment != null) {
                 si.documentation = new MarkupContent.from_markdown (doc_comment.body);
                 if (doc_comment.return_body != null)

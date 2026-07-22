@@ -37,6 +37,7 @@ vls_src = files([
   'codehelp/workspace.vala',
   'documentation/cnamemapper.vala',
   'documentation/doccomment.vala',
+  'documentation/documentationengine.vala',
   'documentation/girdocumentation.vala',
   'projects/buildtarget.vala',
   'projects/buildtask.vala',

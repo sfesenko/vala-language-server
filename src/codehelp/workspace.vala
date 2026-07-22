@@ -32,8 +32,8 @@ namespace Vls.Workspace {
 
         public override void run () {
             var json_array = new Json.Array ();
-            Project[] all_projects = ctx.server.projects.get_keys_as_array ();
-            all_projects += ctx.server.default_project;
+            Project[] all_projects = ctx.services.projects.get_keys_as_array ();
+            all_projects += ctx.services.default_project;
             foreach (var project in all_projects) {
                 project.for_each_project_source_file ((text_document, compilation) => {
                     Vala.CodeContext.push (compilation.code_context);
