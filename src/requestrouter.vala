@@ -162,6 +162,9 @@ class Vls.RequestRouter : Object {
                 _server.trace = Lsp.TraceValue.parse (trace_value);
                 break;
 
+            case "initialized":
+                break;
+
             case "textDocument/didOpen":
                 _server.text_document_did_open (client, parameters);
                 break;

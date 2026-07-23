@@ -429,3 +429,33 @@ void test_semantic_tokens_template_string () {
 
     teardown_session (s);
 }
+
+void test_semantic_tokens_template_simple_interp () {
+    var s = setup_session (TEMPLATE_SIMPLE_INTERP_FIXTURE);
+    var h = new Helpers ();
+    Variant? res = Helpers.sync_call (s.client, "textDocument/semanticTokens/full", h.build_dict (
+        textDocument: h.build_dict (uri: new Variant.string (s.uri))
+    ));
+    assert (res != null);
+    Variant? data = res.lookup_value ("data", null);
+    assert (data != null);
+    assert (data.is_of_type (VariantType.ARRAY));
+
+    var tokens = decode_tokens_full (data);
+    assert (tokens.size > 0);
+
+    const uint STRING = 15;
+    const uint VARIABLE = 8;
+    const uint PARAMETER = 7;
+
+    // The literal "abc " part must be tokenized as STRING
+    assert (has_token_on_line_full (tokens, 2, STRING));
+    // The $x interp must emit a VARIABLE token for x (int local)
+    assert (has_token_on_line_full (tokens, 2, VARIABLE));
+    // The $s interp must emit a PARAMETER token for s (string param)
+    assert (has_token_on_line_full (tokens, 2, PARAMETER));
+    // No overlapping tokens
+    assert_no_overlap (tokens);
+
+    teardown_session (s);
+}

@@ -28,12 +28,18 @@ int main (string[] args) {
     Test.add_func ("/int/document_symbol", test_document_symbol);
     Test.add_func ("/int/hover", test_hover);
     Test.add_func ("/int/goto_definition", test_goto_definition);
+    Test.add_func ("/int/hover_inside_plain_string_is_null", test_hover_inside_plain_string_is_null);
+    Test.add_func ("/int/definition_inside_plain_string_is_null", test_definition_inside_plain_string_is_null);
+    Test.add_func ("/int/hover_inside_interp_shows_var_type", test_hover_inside_interp_shows_var_type);
+    Test.add_func ("/int/definition_inside_interp_jumps_to_param", test_definition_inside_interp_jumps_to_param);
+    Test.add_func ("/int/edit_interp_string_no_crash", test_edit_interp_string_no_crash);
     Test.add_func ("/int/range_formatting", test_range_formatting);
     Test.add_func ("/int/completion", test_completion);
     Test.add_func ("/int/semantic_tokens_full", test_semantic_tokens_full);
     Test.add_func ("/int/semantic_tokens_coverage", test_semantic_tokens_coverage);
     Test.add_func ("/int/semantic_tokens_range", test_semantic_tokens_range);
     Test.add_func ("/int/semantic_tokens_template_string", test_semantic_tokens_template_string);
+    Test.add_func ("/int/semantic_tokens_template_simple_interp", test_semantic_tokens_template_simple_interp);
     Test.add_func ("/int/semantic_tokens_delta", test_semantic_tokens_delta);
     Test.add_func ("/int/references", test_references);
     Test.add_func ("/int/document_highlight", test_document_highlight);

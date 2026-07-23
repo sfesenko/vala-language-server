@@ -327,6 +327,29 @@ const string TEMPLATE_STRING_FIXTURE = """public class Foo {
 }
 """;
 
+const string PLAIN_STRING_FIXTURE = """public class Foo {
+    public void m () {
+        string greeting = "hello name world";
+    }
+    public string name;
+}
+""";
+
+const string INTERP_TYPING_FIXTURE = """public class Foo {
+    public void build (int x, string y) {
+        string s = @"abc $x $(y) def";
+    }
+}
+""";
+
+const string TEMPLATE_SIMPLE_INTERP_FIXTURE = """public class Foo {
+    public string build (int x, string s) {
+        var y = @"abc $x $s";
+        return y;
+    }
+}
+""";
+
 const string SIGNATURE_HELP_FIXTURE = """public class Foo {
     public int add (int a, int b) {
         return a + b;

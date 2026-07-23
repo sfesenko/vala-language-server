@@ -88,7 +88,7 @@ class Vls.TextDocument : SourceFile {
         if (path != null && cont == null)
             FileUtils.get_contents (path, out cont);
         else if (path == null && cont == null)
-            throw new FileError.NOENT (@"file $uri does not exist either on the system or in memory");
+            throw new FileError.NOENT (@"file $(uri) does not exist either on the system or in memory");
         SourceFileType ftype;
         if (uri.has_suffix (".vapi") || uri.has_suffix (".gir"))
             ftype = SourceFileType.PACKAGE;
@@ -96,7 +96,7 @@ class Vls.TextDocument : SourceFile {
             ftype = SourceFileType.SOURCE;
         else {
             ftype = SourceFileType.NONE;
-            warning ("TextDocument: file %s is neither a package nor a source file", uri);
+            warning (@"TextDocument: file $uri is neither a package nor a source file");
         }
         // prefer paths to URIs, unless we don't have a path
         // (this happens when we have just opened a new file in some editors)

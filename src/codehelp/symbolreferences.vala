@@ -84,7 +84,9 @@ namespace Vls.SymbolReferences {
      * it would be more useful to show the file specific to the compilation
      * that generated the file.
      */
-    Vala.Symbol find_real_symbol (Project project, Vala.Symbol symbol) {
+    Vala.Symbol? find_real_symbol (Project project, Vala.Symbol? symbol) {
+        if (symbol == null)
+            return null;
         if (symbol.source_reference == null || symbol.source_reference.file == null)
             return symbol;
 

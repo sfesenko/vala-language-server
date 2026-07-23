@@ -33,7 +33,7 @@ namespace Vls {
      */
     public class TemplateSpan {
         public Vala.SourceReference template;
-        public Gee.List<Vala.Expression> expressions = new Gee.ArrayList<Vala.Expression> ();
+        public Gee.List<Vala.SourceReference> expression_refs = new Gee.ArrayList<Vala.SourceReference> ();
     }
 
     /**
@@ -139,7 +139,7 @@ namespace Vls {
                 span.template = sr;
                 foreach (var expr in tmpl.get_expressions ())
                     if (expr.source_reference != null)
-                        span.expressions.add (expr);
+                        span.expression_refs.add (expr.source_reference);
                 list.add (span);
             }
             // recurse for nested templates (e.g. @"a$( @"b$(x)" )c")

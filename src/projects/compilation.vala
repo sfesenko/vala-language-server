@@ -89,6 +89,14 @@ class Vls.Compilation : BuildTarget {
     private bool _completed_first_compile;
 
     /**
+     * Holds a strong reference to the previous CodeContext after a swap,
+     * preventing it from being freed while in-flight handlers still
+     * reference its AST nodes.  Cleared on idle after all pending
+     * main-loop events have completed.
+     */
+    private Vala.CodeContext? _previous_code_context = null;
+
+    /**
      * Whether packages have been loaded into the code context.
      * After the first successful compile, we reuse the same context
      * and skip re-adding packages on subsequent recompiles.
@@ -130,6 +138,13 @@ class Vls.Compilation : BuildTarget {
      * into to_string()/concat() chains. Keyed by the source file they belong to.
      */
     public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans { get; private set; default = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> (); }
+
+    /**
+     * Set to true when the Vala library logs CRITICAL assertions during
+     * code_context.check().  This indicates corrupted symbols (NULL parents,
+     * type_symbols) from GIR package loading that will crash analyzers.
+     */
+    public bool has_corrupted_symbols { get; internal set; default = false; }
 
     public Compilation (FileCache file_cache, AnalysisCache analysis_cache, string output_dir, string name, string id, int no,
                         string[] compiler, string[] args, string[] sources, string[] generated_sources,
@@ -439,7 +454,16 @@ class Vls.Compilation : BuildTarget {
             source_file.accept (new TemplateNodes (template_spans));
 
         // continue compiling
+        // Capture CRITICAL assertions from the Vala library to detect
+        // corrupted symbols (e.g. from GIR package loading).  If any
+        // are logged we mark the compilation so analyzers can skip it.
+        var had_critical = false;
+        uint vala_log_handler = Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
+            (domain, levels, message) => { had_critical = true; });
         code_context.check ();
+        Log.remove_handler ("vala", vala_log_handler);
+        if (had_critical)
+            has_corrupted_symbols = true;
 
         // generate output files
         // generate VAPI
@@ -561,6 +585,7 @@ class Vls.Compilation : BuildTarget {
         public HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> template_spans;
         public HashMap<string, Vala.Symbol> cname_to_sym;
         public int64 last_updated;
+        public bool has_corrupted_symbols;
     }
 
     /**
@@ -629,6 +654,16 @@ class Vls.Compilation : BuildTarget {
             cancellable.set_error_if_cancelled ();
         gir_parser.parse (worker_ctx);
 
+        // Detect parse errors — @"$(" and similar produce structurally
+        // corrupted ASTs that crash libvala later (vala_callable_get_parameters,
+        // vala_scope_lookup, etc).  Parse errors are distinct from type errors:
+        // type errors leave the AST structurally valid.
+        if (worker_ctx.report.get_errors () > 0) {
+            result.has_corrupted_symbols = true;
+            debug ("compile_on_worker: %s has parse errors (%d), marking corrupted",
+                   id, worker_ctx.report.get_errors ());
+        }
+
         // AST walks (inlay hints + templates) on worker
         foreach (var source_file in worker_ctx.get_source_files ()) {
             source_file.accept (new InlayHintNodes (result.var_decls, result.method_calls));
@@ -647,7 +682,13 @@ class Vls.Compilation : BuildTarget {
             cancellable.set_error_if_cancelled ();
 
         // Type check
+        var worker_had_critical = false;
+        uint worker_log_handler = Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
+            (domain, levels, message) => { worker_had_critical = true; });
         worker_ctx.check ();
+        Log.remove_handler ("vala", worker_log_handler);
+        if (worker_had_critical)
+            result.has_corrupted_symbols = true;
         if (cancellable != null)
             cancellable.set_error_if_cancelled ();
 
@@ -665,14 +706,54 @@ class Vls.Compilation : BuildTarget {
     /**
      * Swap the result of {@link compile_async} into this Compilation's
      * state. Called on the main thread after the worker finishes.
+     *
+     * Returns true if the swap was accepted, false if rejected (corrupted AST).
+     * When rejected, the old (valid, just stale) AST is preserved.
      */
-    public void swap_compile_result (CompileResult result) {
-        // Build a filename→main-thread-SourceFile lookup for remapping
+    public bool swap_compile_result (CompileResult result) {
+        if (result.has_corrupted_symbols) {
+            debug ("swap_compile_result: %s has corrupted symbols, rejecting swap", id);
+            has_corrupted_symbols = true;
+            last_updated = result.last_updated;
+            _completed_first_compile = true;
+            return false;
+        }
+        // Keep the old CodeContext alive until all in-flight handlers finish.
+        // Without this, handlers that captured references to old AST nodes
+        // (SourceFile, TemplateSpan, etc.) get dangling pointers after free.
+        // The field holds a strong reference; the idle handler clears it.
+        _previous_code_context = code_context;
+        code_context = result.code_context;
+        // Schedule clear on idle — runs after ALL pending main-loop events
+        // (i.e. all in-flight handlers) have completed.
+        Idle.add (() => { _previous_code_context = null; return Source.REMOVE; });
+
+        // Rebuild _project_sources from the swapped-in code_context so that
+        // the next edit/compile cycle sees the same TextDocument objects.
+        // Without this, _project_sources contains stale main-thread docs
+        // while code_context has fresh worker docs — divergence causes
+        // CRITICAL assertions in the Vala parser on subsequent compiles.
+        // Save filename -> old File key mapping before clearing so the
+        // new TextDocuments can reuse the original File keys (avoids
+        // creating URI-based Files from paths, which breaks file_hash).
+        var old_keys_by_filename = new HashMap<string, File> ();
+        foreach (var entry in _project_sources)
+            old_keys_by_filename[entry.value.filename] = entry.key;
+
+        _project_sources.clear ();
+        foreach (var source in code_context.get_source_files ()) {
+            if (source is TextDocument) {
+                File key = old_keys_by_filename[source.filename];
+                _project_sources[key ?? File.new_for_path (source.filename)] = (TextDocument) source;
+            }
+        }
+
+        // Remap template_spans keys from worker source files to _project_sources
+        // TextDocuments (now rebuilt from the swapped context so identities match).
         var main_files_by_name = new HashMap<string, Vala.SourceFile> ();
         foreach (var entry in _project_sources)
             main_files_by_name[entry.value.filename] = entry.value;
 
-        // Remap template_spans keys from worker source files to main-thread files
         var remapped_spans = new HashMap<Vala.SourceFile, Gee.List<TemplateSpan>> ();
         foreach (var entry in result.template_spans) {
             var main_file = main_files_by_name[entry.key.filename];
@@ -681,8 +762,8 @@ class Vls.Compilation : BuildTarget {
             else
                 remapped_spans[entry.key] = entry.value;
         }
+        template_spans = remapped_spans;
 
-        code_context = result.code_context;
         var_decls = result.var_decls;
         method_calls = result.method_calls;
         template_spans = remapped_spans;
@@ -710,21 +791,18 @@ class Vls.Compilation : BuildTarget {
             interface_writer.write_file (code_context, _output_internal_vapi);
         }
 
-        // Invalidate analyses for sources no longer in the code context.
-        var new_filenames = new HashSet<string> ();
-        foreach (var source in code_context.get_source_files ())
-            new_filenames.add (source.filename);
-        var removed_filenames = new HashSet<string> ();
-        foreach (var old_source in _project_sources.values) {
-            if (!new_filenames.contains (old_source.filename))
-                removed_filenames.add (old_source.filename);
-        }
-        if (removed_filenames.size > 0)
-            _analysis_cache.invalidate_files (removed_filenames);
+        // Invalidate ALL cached analyses — the code_context was swapped to a
+        // new instance, so any analyzer holding references to the old AST must
+        // be recreated.  The stale check (analysis.last_updated < compilation.last_updated)
+        // may not fire when the user's request arrives before an async swap completes,
+        // so we aggressively wipe the cache for every project source.
+        foreach (var entry in _project_sources)
+            _analysis_cache.invalidate_for_file (entry.value.filename);
 
         // Update TextDocument contexts to point to the new code_context
         foreach (var entry in _project_sources)
             entry.value.context = code_context;
+        return true;
     }
 
     /**

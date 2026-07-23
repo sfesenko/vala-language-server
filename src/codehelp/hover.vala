@@ -47,6 +47,21 @@ namespace Vls.HoverHandler {
 
             Vala.Scope scope = (new FindScope (doc, pos)).best_block.scope;
             var node = (!) resolved;
+            // A literal is not a symbol — hovering over a word inside a
+            // plain string literal (or over an integer/boolean/etc.) should
+            // produce no hover, rather than report the literal's value_type
+            // (e.g. "string" for "hello world"). Interpolated expressions
+            // inside @"$x" are reached via a separate path (the inner
+            // MemberAccess is picked by get_best's tie-breaker for
+            // synthetic to_string wrappers), so a literal here means the
+            // cursor really is on plain text.
+            if (node is Vala.StringLiteral || node is Vala.IntegerLiteral
+                || node is Vala.RealLiteral || node is Vala.BooleanLiteral
+                || node is Vala.CharacterLiteral || node is Vala.NullLiteral
+                || node is Vala.RegexLiteral) {
+                reply_null ();
+                return;
+            }
             // don't show lambda expressions on hover
             // don't show property accessors
             if (node is Vala.Method && ((Vala.Method)node).closure ||
@@ -152,18 +167,31 @@ namespace Vls.HoverHandler {
     void hover (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
 
-        Compilation compilation;
-        Project project;
-        Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.cleanup_request (server, id);
-            Server.reply_null (id, client, method);
-            return;
+        // We deliberately do NOT resolve the SourceFile here: an edit
+        // (textDocument/didChange) arriving between now and the context
+        // update would cause context_manager to swap compile_compile_result,
+        // replacing compilation.code_context and every SourceFile object it
+        // yielded. The old SourceFile's .context still points to the freed
+        // old Vala.CodeContext — visiting its AST crashes libvala.
+        // Re-resolve inside the callback so we always see the live AST.
+        Compilation? preliminary_compilation = null;   // only used to gate the wait
+        {
+            Project? pre_project;
+            server.project_manager.find_file (p.textDocument.uri, out preliminary_compilation, out pre_project);
         }
 
         server.context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                Server.cleanup_request (server, id);
+                Server.reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
                 Server.reply_null (id, client, method);
                 return;
@@ -175,6 +203,6 @@ namespace Vls.HoverHandler {
                 var handler = new HoverHandler (ctx);
                 handler.run ();
             });
-        }, compilation);
+        }, preliminary_compilation, true);
     }
 }

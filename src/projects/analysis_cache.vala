@@ -39,11 +39,6 @@ class Vls.AnalysisCache : Object {
         _cache.unset (filename);
     }
 
-    public void invalidate_files (Collection<string> filenames) {
-        foreach (var filename in filenames)
-            _cache.unset (filename);
-    }
-
     /**
      * Get or create the analysis of type T for the given source file.
      * Each (filename, Compilation) pair has its own isolated cache.
@@ -65,6 +60,7 @@ class Vls.AnalysisCache : Object {
 
         AbstractAnalyzer? analysis = null;
         bool has_cached = type_cache.has_key (typeof (T));
+
         if (!has_cached || type_cache[typeof (T)].last_updated < compilation.last_updated) {
             if (has_cached)
                 debug ("[SEMTOK] get_analysis_for_file: stale %s for %s (comp_lu=%s)",

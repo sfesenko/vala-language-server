@@ -135,8 +135,9 @@ class Vls.ContextManager : Object {
                                     if (was_cancelled) {
                                         debug ("[SEMTOK] async compile cancelled for %s (newer edit arrived)", compilation.id);
                                     } else {
-                                        compilation.swap_compile_result (result);
-                                        debug ("[SEMTOK] async compile done for %s", compilation.id);
+                                        bool accepted = compilation.swap_compile_result (result);
+                                        debug ("[SEMTOK] async compile done for %s (swap %s)",
+                                               compilation.id, accepted ? "accepted" : "rejected: corrupted AST");
                                     }
                                 } catch (Error e) {
                                     was_cancelled = compile_canc.is_cancelled ();
@@ -236,10 +237,18 @@ class Vls.ContextManager : Object {
     }
 
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func,
-                                          Compilation? compilation = null) {
-        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s",
+                                          Compilation? compilation = null, bool stale_safe = false) {
+        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s stale_safe=%s",
                id.print (false), (int) update_context_requests, pending_requests.size,
-               compilation != null ? compilation.id : "any");
+               compilation != null ? compilation.id : "any", stale_safe.to_string ());
+        // Stale-safe requests (hover, symbols, etc.) can use a slightly
+        // stale AST, but they must still wait for in-flight compiles to
+        // finish so they don't run against a mid-swap AST that's about
+        // to be replaced.
+        if (stale_safe && compile_in_progress_count == 0) {
+            on_context_updated_func (false);
+            return;
+        }
         // If a specific compilation is known and it's not stale,
         // proceed immediately — edits in other targets don't block this one.
         if (compilation != null && !compilation.is_stale ()) {

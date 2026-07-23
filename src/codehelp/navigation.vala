@@ -49,18 +49,31 @@ namespace Vls.Navigation {
     void goto_definition (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams> (@params);
 
-        Compilation compilation;
-        Project project;
-        Vala.SourceFile? file = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
-        if (file == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.cleanup_request (server, id);
-            Server.reply_null (id, client, method);
-            return;
+        // Resolve the SourceFile INSIDE the wait_for_context_update callback,
+        // not here: an intervening edit (textDocument/didChange) can swap
+        // compilation.code_context to a fresh Vala.CodeContext whose
+        // SourceFile objects are different instances. The pre-wait SourceFile
+        // would still point at the freed old context, and visiting its AST
+        // crashes libvala. Only the Compilation is needed up-front to gate
+        // the wait.
+        Compilation? preliminary_compilation = null;
+        {
+            Project? pre_project;
+            server.project_manager.find_file (p.textDocument.uri, out preliminary_compilation, out pre_project);
         }
 
         server.context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                Server.cleanup_request (server, id);
+            Server.reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? file = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (file == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;
@@ -72,7 +85,7 @@ namespace Vls.Navigation {
                 var handler = new DefinitionHandler (ctx);
                 handler.run ();
             });
-        }, compilation);
+        }, preliminary_compilation, true);
     }
 
     /**
@@ -267,18 +280,28 @@ namespace Vls.Navigation {
     void show_references (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<ReferenceParams>(@params);
 
-        Compilation compilation;
-        Project project;
-        Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.cleanup_request (server, id);
-            Server.reply_null (id, client, method);
-            return;
+        // Resolve the SourceFile INSIDE the wait callback (matches
+        // goto_definition): an edit between now and the context update swaps
+        // compilation.code_context, so a SourceFile captured here would point
+        // at a freed Vala.CodeContext.
+        Compilation? preliminary_compilation = null;
+        {
+            Project? pre_project;
+            server.project_manager.find_file (p.textDocument.uri, out preliminary_compilation, out pre_project);
         }
 
         server.context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                Server.cleanup_request (server, id);
+            Server.reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;
@@ -293,24 +316,30 @@ namespace Vls.Navigation {
                 var handler = new ReferencesHandler (ctx, is_highlight, include_declaration);
                 handler.run ();
             });
-        }, compilation);
+        }, preliminary_compilation, true);
     }
 
     void show_implementations (Server server, Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.TextDocumentPositionParams>(@params);
 
-        Compilation compilation;
-        Project project;
-        Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
-        if (doc == null) {
-            debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
-            Server.cleanup_request (server, id);
-            Server.reply_null (id, client, method);
-            return;
+        Compilation? preliminary_compilation = null;
+        {
+            Project? pre_project;
+            server.project_manager.find_file (p.textDocument.uri, out preliminary_compilation, out pre_project);
         }
 
         server.context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                Server.cleanup_request (server, id);
+            Server.reply_null (id, client, method);
+                return;
+            }
+
+            Compilation compilation;
+            Project project;
+            Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
+            if (doc == null) {
+                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;
@@ -322,6 +351,6 @@ namespace Vls.Navigation {
                 var handler = new ImplementationHandler (ctx);
                 handler.run ();
             });
-        }, compilation);
+        }, preliminary_compilation, true);
     }
 }

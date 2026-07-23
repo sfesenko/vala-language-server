@@ -46,8 +46,15 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
             return;
         }
 
+        // Guard against corrupted code_context (e.g. GIR packages with NULL symbols)
+        if (file.context == null || file.context.root == null || file.context.root.scope == null) {
+            warning ("SymbolEnumerator: file %s has corrupted code context — skipping", file.filename);
+            return;
+        }
+
         str_sym = file.context.root.scope.lookup ("string") as Vala.TypeSymbol;
         this.visit_source_file (file);
+        str_sym = null;
         str_sym = null;
     }
 
@@ -66,9 +73,16 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
     }
 
     public DocumentSymbol? add_symbol (Vala.Symbol sym, SymbolKind kind, bool adding_parent = false) {
+        // Guard against corrupted symbols (GIR packages with NULL parent chains)
+        string? full_name = null;
+        full_name = sym.get_full_name ();
+        if (full_name == null) {
+            debug ("SymbolEnumerator: skipping symbol with corrupted full name");
+            return null;
+        }
         var current_sym = (containers.is_empty || adding_parent) ? null : containers.peek_head ();
         DocumentSymbol? dsym;
-        string sym_full_name = sym.get_full_name ();
+        string sym_full_name = (!) full_name;
         bool unique = true;
 
         if (sym is Vala.Namespace && ns_name_to_dsym.has_key (sym_full_name)) {

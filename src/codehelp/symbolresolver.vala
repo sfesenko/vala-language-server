@@ -33,17 +33,64 @@ namespace Vls.SymbolResolver {
                 var node_begin = new Position.from_libvala (node.source_reference.begin);
                 var node_end = new Position.from_libvala (node.source_reference.end);
 
-                if (best_begin.compare_to (node_begin) <= 0 && node_end.compare_to (best_end) <= 0 &&
-                    (!(best_begin.compare_to (node_begin) == 0 && node_end.compare_to (best_end) == 0) ||
-                    (best is Vala.LocalVariable && node is Vala.LocalVariable) ||
-                    (best is Vala.Field && node is Vala.Property) ||
-                    (best is Vala.NullLiteral && node is Vala.Method)
-                )) {
+                bool same_range = best_begin.compare_to (node_begin) == 0
+                    && node_end.compare_to (best_end) == 0;
+                bool node_inside_best = best_begin.compare_to (node_begin) <= 0
+                    && node_end.compare_to (best_end) <= 0;
+
+                if (same_range) {
+                    // Tie-breaker for equal-ranged candidates.
+                    // Original rule: keep [best] unless one of the special
+                    // equivalences (LocalVariable, Field/Property,
+                    // NullLiteral/Method) applies — the visitor order wins
+                    // ties in that case. On top of that, prefer a candidate
+                    // that resolves to a real user-visible symbol over a
+                    // synthetic wrapper. This matters for template
+                    // interpolations: Vala rewrites "$x" into
+                    // "(x).to_string(\"%i\")", and the rewritten MethodCall
+                    // inherits the inner expression's source reference, so
+                    // both the MethodCall (symbol = builtin to_string) and
+                    // the inner MemberAccess (symbol = the real local var)
+                    // match the cursor. Without this tie-breaker the natural
+                    // visitor order picks the wrapper, hiding the variable's
+                    // actual type behind string (the to_string return type).
+                    bool special_equiv = (best is Vala.LocalVariable && node is Vala.LocalVariable)
+                        || (best is Vala.Field && node is Vala.Property)
+                        || (best is Vala.NullLiteral && node is Vala.Method);
+                    if (special_equiv) {
+                        best = node;
+                        continue;
+                    }
+                    bool best_has_real_sym = best is Vala.Symbol
+                        || (best is Vala.Expression
+                            && ((Vala.Expression) best).symbol_reference != null
+                            && !is_synthetic_wrapper_symbol (((Vala.Expression) best).symbol_reference));
+                    bool node_has_real_sym = node is Vala.Symbol
+                        || (node is Vala.Expression
+                            && ((Vala.Expression) node).symbol_reference != null
+                            && !is_synthetic_wrapper_symbol (((Vala.Expression) node).symbol_reference));
+                    if (node_has_real_sym && !best_has_real_sym)
+                        best = node;
+                } else if (node_inside_best) {
                     best = node;
                 }
             }
         }
         return (!) best;
+    }
+
+    // Returns true if [sym] is one of the synthetic helpers Vala inserts
+    // when rewriting template literals (@"...") into concat/to_string chains.
+    // Clicking on a $(expr) interpolation should resolve to the user's real
+    // expr, not to to_string / concat that wrap it.
+    private static bool is_synthetic_wrapper_symbol (Vala.Symbol sym) {
+        if (sym is Vala.Method) {
+            var name = sym.name;
+            if (name == "to_string" || name == "concat"
+                || (sym.parent_symbol != null && sym.parent_symbol.name == "string"))
+                return true;
+        }
+        return false;
     }
 
     Vala.CodeNode? resolve_best_node (Vala.SourceFile file, Position pos,
@@ -71,6 +118,19 @@ namespace Vls.SymbolResolver {
             return null;
 
         Vala.CodeNode best = (!) resolved;
+
+        // A cursor on a literal (string/int/bool/char …) does not point at
+        // a user-navigable symbol — bail out instead of reporting a "goto
+        // self" Location covering the literal itself. (The classic case is
+        // a word inside a plain "…" string literal, which resolves to the
+        // Vala.StringLiteral and would previously report itself as the
+        // definition target; see hover.vala for the matching hover guard.)
+        if (best is Vala.StringLiteral || best is Vala.IntegerLiteral
+            || best is Vala.RealLiteral || best is Vala.BooleanLiteral
+            || best is Vala.CharacterLiteral || best is Vala.NullLiteral
+            || best is Vala.RegexLiteral)
+            return null;
+
         Vala.Symbol? best_sym = best as Vala.Symbol;
 
         if (best is Vala.Expression && !(best is Vala.Literal)) {

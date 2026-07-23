@@ -73,9 +73,9 @@ class Vls.Server : Jsonrpc.Server {
         });
     }
 
-    public Server (MainLoop loop) throws ThreadError {
+    public Server (MainLoop loop) {
+        stderr.printf ("=== VLS: Server constructor started ===\n");
         this.loop = loop;
-        this.scheduler = new Scheduler ();
 
         // hack to prevent other things from corrupting JSON-RPC pipe:
         // create a new handle to stdout, and close the old one (or move it to stderr)
@@ -92,6 +92,10 @@ class Vls.Server : Jsonrpc.Server {
         var output_stream = new Win32OutputStream (new_stdout_handle, false);
 #else
         var new_stdout_fd = Posix.dup (Posix.STDOUT_FILENO);
+        if (new_stdout_fd < 0) {
+            stderr.printf ("=== VLS: dup stdout failed, exiting ===\n");
+            Process.exit (1);
+        }
         Posix.close (Posix.STDOUT_FILENO);
         Posix.dup2 (Posix.STDERR_FILENO, Posix.STDOUT_FILENO);
 
@@ -120,6 +124,16 @@ class Vls.Server : Jsonrpc.Server {
         this.request_router = new RequestRouter (this);
 
         debug ("Finished constructing");
+    }
+
+    /**
+     * Initialize the scheduler thread pool.  Separate from the constructor so
+     * that thread creation (which may trigger GLib type-system registration)
+     * happens after the main-loop I/O is fully set up and debug logging is
+     * configured.
+     */
+    internal void init_scheduler () throws ThreadError {
+        this.scheduler = new Scheduler ();
     }
 
     protected override void notification (Jsonrpc.Client client, string method, Variant parameters) {
@@ -1050,18 +1064,24 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
+            Compilation ctx_compilation;
+            Vala.SourceFile? ctx_file = project_manager.find_file (p.textDocument.uri, out ctx_compilation);
+            if (ctx_file == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                          (!) source_file, compilation, null);
-            with_code_context (compilation.code_context, () => {
+                                          (!) ctx_file, ctx_compilation, null);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new FormatHandler (ctx, p);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     class CodeActionHandler : RequestHandler {
@@ -1098,14 +1118,23 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
+
+            // Re-resolve after context update so SourceFile belongs to the live CodeContext
+            Compilation ctx_compilation;
+            Vala.SourceFile? ctx_file = project_manager.find_file (p.textDocument.uri, out ctx_compilation);
+            if (ctx_file == null) {
+                reply_null (id, client, method);
+                return;
+            }
+
             var ctx = new RequestContext (this, client, id, method,
-                                          (!) source_file, compilation, null);
-            with_code_context (compilation.code_context, () => {
+                                          (!) ctx_file, ctx_compilation, null);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new CodeActionHandler (ctx, p);
                 handler.run ();
             });
@@ -1140,20 +1169,27 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
+                reply_null (id, client, method);
+                return;
+            }
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_file = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_file == null) {
                 reply_null (id, client, method);
                 return;
             }
 
             bool hierarchical = init_params.capabilities.textDocument.documentSymbol.hierarchicalDocumentSymbolSupport;
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) file, compilation, project, p.position);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_file, ctx_compilation, ctx_project, p.position);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new DocumentSymbolHandler.DocumentSymbolHandler (ctx, hierarchical);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_prepare_rename (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1168,19 +1204,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_doc = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project, p.position);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project, p.position);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new Rename.PrepareRenameHandler (ctx);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_rename (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1207,19 +1249,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_doc = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project, p.position);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project, p.position);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new Rename.RenameHandler (ctx, new_name);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_code_lens (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1241,19 +1289,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_file = project_manager.find_file (uri, out ctx_compilation, out ctx_project);
+            if (ctx_file == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         file, compilation, project);
+                                         ctx_file, ctx_compilation, ctx_project);
             with_code_context (compilation.code_context, () => {
                 var handler = new CodeLensEngine.CodeLensHandler (ctx);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_semantic_tokens_full (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1355,19 +1409,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_doc = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project, p.position);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project, p.position);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new CallHierarchy.PrepareCallHierarchyHandler (ctx, p);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_call_hierarchy_incoming_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1383,19 +1443,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_doc = project_manager.find_file (item.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new CallHierarchy.CallHierarchyIncomingHandler (ctx, item);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_call_hierarchy_outgoing_calls (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1411,19 +1477,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            Vala.SourceFile? ctx_doc = project_manager.find_file (item.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new CallHierarchy.CallHierarchyOutgoingHandler (ctx, item);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_inlay_hint (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1438,19 +1510,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation? ctx_compilation;
+            Project? ctx_project;
+            var ctx_file = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_file == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) file, compilation, project, p.range.start);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_file, ctx_compilation, ctx_project, p.range.start);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new InlayHints.InlayHintHandler (ctx, p);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_prepare_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params) {
@@ -1465,19 +1543,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            var ctx_doc = project_manager.find_file (p.textDocument.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project, p.position);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project, p.position);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new TypeHierarchy.PrepareTypeHierarchyHandler (ctx, p);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
     internal void dispatch_show_type_hierarchy (Jsonrpc.Client client, string method, Variant id, Variant @params, bool supertypes) {
@@ -1493,19 +1577,25 @@ class Vls.Server : Jsonrpc.Server {
             return;
         }
 
-            context_manager.wait_for_context_update (id, request_cancelled => {
+        context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
                 reply_null (id, client, method);
                 return;
             }
-
+            Compilation ctx_compilation;
+            Project ctx_project;
+            var ctx_doc = project_manager.find_file (item.uri, out ctx_compilation, out ctx_project);
+            if (ctx_doc == null) {
+                reply_null (id, client, method);
+                return;
+            }
             var ctx = new RequestContext (this, client, id, method,
-                                         (!) doc, compilation, project);
-            with_code_context (compilation.code_context, () => {
+                                         (!) ctx_doc, ctx_compilation, ctx_project);
+            with_code_context (ctx_compilation.code_context, () => {
                 var handler = new TypeHierarchy.ShowTypeHierarchyHandler (ctx, item, supertypes);
                 handler.run ();
             });
-        }, compilation);
+        }, compilation, true);
     }
 
 
@@ -1581,7 +1671,25 @@ const OptionEntry[] entries = {
     {}
 };
 
+// glibc backtrace helpers (not in Vala Posix VAPI)
+[CCode (cname = "backtrace", cheader_filename = "execinfo.h")]
+extern int glibc_backtrace ([CCode (array_length = false)] void*[] buffer, int size);
+[CCode (cname = "backtrace_symbols_fd", cheader_filename = "execinfo.h")]
+extern void glibc_backtrace_symbols_fd ([CCode (array_length = false)] void*[] buffer, int size, int fd);
+
 int main (string[] args) {
+    Posix.@signal (Posix.Signal.SEGV, () => {
+        stderr.printf ("=== VLS: segmentation fault (internal error) ===\n");
+        // Print native backtrace – backtrace_symbols_fd is signal-safe
+        void*[] frames = new void*[64];
+        int n_frames = glibc_backtrace (frames, 64);
+        stderr.printf ("--- backtrace (%d frames) ---\n", n_frames);
+        glibc_backtrace_symbols_fd (frames, n_frames, 2);  // fd 2 = stderr
+        stderr.printf ("--- end backtrace ---\n");
+        Posix.exit (1);
+    });
+
+    stderr.printf ("=== VLS starting ===\n");
     Environment.set_prgname ("vala-language-server");
     var ocontext = new OptionContext ("- vala-language-server");
     ocontext.add_main_entries (entries, null);
@@ -1626,12 +1734,13 @@ int main (string[] args) {
     }
 
     var loop = new MainLoop ();
+    var sv = new Vls.Server (loop);
+    if (vls_log_file != null)
+        Log.set_default_handler ((domain, levels, message) => {
+            vls_log_handler (sv, domain, levels, message);
+        });
     try {
-        var sv = new Vls.Server (loop);
-        if (vls_log_file != null)
-            Log.set_default_handler ((domain, levels, message) => {
-                vls_log_handler (sv, domain, levels, message);
-            });
+        sv.init_scheduler ();
     } catch (ThreadError e) {
         error ("Failed to create scheduler: %s", e.message);
     }

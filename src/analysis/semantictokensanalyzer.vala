@@ -53,39 +53,70 @@ namespace Vls {
         // suppression: any rewritten member access whose source ref
         // overlaps an interpolation span is skipped. This is robust
         // against Vala's rewrite (no name coupling).
-        private Gee.List<Vls.Foundation.InterpolationSpan?> interpolation_spans =
-            new Gee.ArrayList<Vls.Foundation.InterpolationSpan?> ();
+    private Gee.List<Vls.Foundation.InterpolationSpan?> interpolation_spans =
+        new Gee.ArrayList<Vls.Foundation.InterpolationSpan?> ();
+
+    // True during emit_captured_template_tokens(), false during the initial
+    // AST walk. When true, overlap checks are bypassed so that interpolation
+    // expressions produce tokens rather than being suppressed.
+    private bool _in_template_pass = false;
+
+    // Byte ranges of every @"..." template literal in the file, used to
+    // suppress ALL rewritten nodes in the initial AST walk (not just
+    // .concat/.to_string, but also any synthetic node whose source ref
+    // falls inside a template).
+    private Gee.ArrayList<long> _template_start_offsets = new Gee.ArrayList<long> ();
+    private Gee.ArrayList<long> _template_end_offsets = new Gee.ArrayList<long> ();
 
         // Line-start offset index for file.content, built once per analyzer so
         // that repeated offset->position conversions (template segments,
         // interpolation spans) are O(log n) instead of rescanning the buffer.
         private Vls.Foundation.LineIndex? line_index;
 
-        public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
-            this.file = file;
-            this.captured_templates = template_spans;
+    public SemanticTokensAnalyzer (Vala.SourceFile file, Gee.List<TemplateSpan>? template_spans = null) {
+        this.file = file;
+        this.captured_templates = template_spans;
 
-            // Scan the source buffer for template interpolations. The
-            // scanner offsets must live in the SAME buffer the captured
-            // source references are addressed against (file.content here,
-            // matching emit_captured_template_tokens) so range overlap
-            // is compared directly with no position conversion.
-            var buf = file.content;
-            if (buf != null) {
-                line_index = new Vls.Foundation.LineIndex (buf);
-                foreach (var tmpl in Vls.Foundation.scan_templates (buf)) {
-                    if (tmpl.start < 0 || tmpl.end > buf.length)
+        // Guard against corrupted code_context (e.g. GIR packages with NULL symbols)
+        if (file.context == null || file.context.root == null || file.context.root.scope == null) {
+            warning ("SemanticTokensAnalyzer: file %s has corrupted code context — skipping", file.filename);
+            return;
+        }
+
+        var buf = file.content;
+        if (buf != null) {
+            line_index = new Vls.Foundation.LineIndex (buf);
+            // Build interpolation spans from the raw buffer scan.
+            foreach (var tmpl in Vls.Foundation.scan_templates (buf)) {
+                if (tmpl.start < 0 || tmpl.end > buf.length)
+                    continue;
+                foreach (var interp in tmpl.interpolations)
+                    if (interp.start >= 0 && interp.end <= buf.length)
+                        interpolation_spans.add (interp);
+            }
+            // Build template literal byte ranges from captured_templates
+            // for suppression of EVERY synthetic node inside @"...".
+            if (captured_templates != null) {
+                foreach (var ts in captured_templates) {
+                    var sr = ts.template;
+                    if (sr.file != file)
                         continue;
-                    foreach (var interp in tmpl.interpolations)
-                        if (interp.start >= 0 && interp.end <= buf.length)
-                            interpolation_spans.add (interp);
+                    long t_start = line_index.byte_offset_for_char (
+                        (uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+                    long t_end = line_index.byte_offset_for_char (
+                        (uint) (sr.end.line - 1), (uint) sr.end.column);
+                    if (t_end > t_start) {
+                        _template_start_offsets.add (t_start);
+                        _template_end_offsets.add (t_end);
+                    }
                 }
             }
-
-            debug ("[SEMTOK] analyzer created, file=%s, content_len=%d, interp_spans=%d",
-                   file.filename, buf != null ? buf.length : 0, interpolation_spans.size);
-            this.visit_source_file (file);
         }
+
+        debug ("[SEMTOK] analyzer created, file=%s, content_len=%d, interp_spans=%d",
+               file.filename, buf != null ? buf.length : 0, interpolation_spans.size);
+        this.visit_source_file (file);
+    }
 
         /**
          * Slice [sr] using the pre-built {@link line_index} when available,
@@ -291,13 +322,24 @@ namespace Vls {
         // synthetic to_string()/concat() member accesses that Vala
         // inserts when rewriting template literals.
         private bool overlaps_interpolation (Vala.SourceReference sr) {
-            if (line_index == null || sr.file != file)
+            if (_in_template_pass || line_index == null || sr.file != file)
                 return false;
             long sb = line_index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
             long se = line_index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column);
             foreach (var span in interpolation_spans) {
-                // half-open overlap test
                 if (sb < span.end && se > span.start)
+                    return true;
+            }
+            // Also suppress any node whose source reference falls inside
+            // a template literal (@"...") — the compiler may assign
+            // synthetic .concat()/.to_string() source refs to the literal
+            // segments, not just the $(...) parts.
+            return overlaps_template (sb, se);
+        }
+
+        private bool overlaps_template (long sb, long se) {
+            for (int i = 0; i < _template_start_offsets.size; i++) {
+                if (sb < _template_end_offsets[i] && se > _template_start_offsets[i])
                     return true;
             }
             return false;
@@ -549,6 +591,11 @@ namespace Vls {
                 if (!synthetic) {
                     var sym = expr.symbol_reference;
                     uint tok_type = Util.sym_token_type (sym);
+                    // Captured template expressions have no symbol_reference
+                    // (captured before semantic analysis resolves symbols).
+                    // Default to VARIABLE so template interps get tokens.
+                    if (tok_type >= 255 && _in_template_pass)
+                        tok_type = SemanticTokenType.VARIABLE;
                     if (tok_type < 255) {
                         uint mods = 0;
                         if (sym is Vala.Constant)
@@ -824,7 +871,21 @@ namespace Vls {
         public override void visit_string_literal (Vala.StringLiteral lit) {
             if (!is_in_file (lit))
                 return;
-            add_token (lit.source_reference, SemanticTokenType.STRING);
+            // Suppress the raw STRING token for template literals (@"...")
+            // — the template emission code handles these with separate STRING
+            // tokens for literal segments and proper tokens for interpolations.
+            var sr = lit.source_reference;
+            if (sr != null && overlaps_template_for_sr (sr))
+                return;
+            add_token (sr, SemanticTokenType.STRING);
+        }
+
+        private bool overlaps_template_for_sr (Vala.SourceReference sr) {
+            if (line_index == null)
+                return false;
+            long sb = line_index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
+            long se = line_index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column);
+            return overlaps_template (sb, se);
         }
 
         /**
@@ -857,16 +918,18 @@ namespace Vls {
          * directly so interpolation identifiers are colored correctly whether
          * or not the original Template node survived check().
          */
-        private void emit_captured_template_tokens () {
-            if (captured_templates == null)
-                return;
-            var content = file.content;
-            if (content == null)
-                return;
-            foreach (var ts in captured_templates) {
-                emit_template_tokens_for_template (content, ts);
-            }
+    private void emit_captured_template_tokens () {
+        if (captured_templates == null)
+            return;
+        var content = file.content;
+        if (content == null)
+            return;
+        _in_template_pass = true;
+        foreach (var ts in captured_templates) {
+            emit_template_tokens_for_template (content, ts);
         }
+        _in_template_pass = false;
+    }
 
         private void emit_template_tokens_for_template (string content, TemplateSpan ts) {
             if (ts.template.file != file || line_index == null)
@@ -874,23 +937,33 @@ namespace Vls {
             var sr = ts.template;
             long t_start = line_index.byte_offset_for_char ((uint) (sr.begin.line - 1), (uint) (sr.begin.column - 1));
             long t_end = line_index.byte_offset_for_char ((uint) (sr.end.line - 1), (uint) sr.end.column);
-            if (t_end <= t_start)
+            // Guard against stale source references (file edited since compile)
+            if (t_start < 0 || t_end > content.length || t_end <= t_start)
                 return;
 
-            var spans = build_interpolation_spans (content, ts.expressions);
+            // Use scanner-based interpolation spans (from current content)
+            // instead of expression-based spans that match the compiled
+            // (possibly stale) content.  Only include spans that fall
+            // within this template's byte range.
+            var spans = new Gee.ArrayList<Span?> ();
+            foreach (var ispan in interpolation_spans) {
+                if (ispan.start >= t_start && ispan.end <= t_end)
+                    spans.add (Span () { start = ispan.start, end = ispan.end });
+            }
+            // Fallback: if no scanner spans found, use expression spans
+            if (spans.size == 0)
+                spans = build_interpolation_spans (content, ts.expression_refs);
             if (spans == null || spans.size == 0) {
                 emit_string_segment (content, t_start, t_end);
                 return;
             }
 
             emit_template_gaps (content, t_start, t_end, spans);
-            tokenize_interpolated_expressions (ts.expressions);
         }
 
-        private Gee.ArrayList<Span?>? build_interpolation_spans (string content, Gee.List<Vala.Expression> expressions) {
+        private Gee.ArrayList<Span?>? build_interpolation_spans (string content, Gee.List<Vala.SourceReference> refs) {
             var spans = new Gee.ArrayList<Span?> ();
-            foreach (var expr in expressions) {
-                var esr = expr.source_reference;
+            foreach (var esr in refs) {
                 if (esr == null || esr.file != file || line_index == null)
                     continue;
                 long eb = line_index.byte_offset_for_char ((uint) (esr.begin.line - 1), (uint) (esr.begin.column - 1));
@@ -906,15 +979,6 @@ namespace Vls {
                 return 0;
             });
             return spans;
-        }
-
-        private void tokenize_interpolated_expressions (Gee.List<Vala.Expression> expressions) {
-            foreach (var expr in expressions) {
-                var esr = expr.source_reference;
-                if (esr == null || esr.file != file)
-                    continue;
-                expr.accept (this);
-            }
         }
 
         private void emit_string_segment (string content, long start, long end) {
