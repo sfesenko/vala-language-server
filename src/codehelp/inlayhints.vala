@@ -39,11 +39,11 @@ namespace Vls.InlayHints {
                 try {
                     foreach_regex = new Regex ("""foreach\s*\(\s*var\s+(\w+)""", RegexCompileFlags.MULTILINE);
                 } catch (RegexError e) {
-                    warning ("Failed to compile foreach regex: %s", e.message);
+                    Vls.Log.warn ("lsp", "Failed to compile foreach regex: %s", e.message);
                     try {
                         foreach_regex = new Regex ("a^");  // matches nothing
                     } catch (RegexError e2) {
-                        error ("Cannot create fallback regex: %s", e2.message);
+                        Vls.Log.error ("lsp", "Cannot create fallback regex: %s", e2.message);
                     }
                 }
             }
@@ -103,7 +103,7 @@ namespace Vls.InlayHints {
             var compilation = ctx.compilation;
             var query = new NodeSearch.within (ctx.file, p.range, false);
             if (query.result.is_empty) {
-                debug ("[%s] nothing found at %s", ctx.method, p.range.to_string ());
+                Vls.Log.debug ("lsp", "nothing found at %s", p.range.to_string ());
                 reply_null ();
                 return;
             }
@@ -279,7 +279,7 @@ namespace Vls.InlayHints {
                 array += Util.object_to_variant (hint);
             reply_dict (new Variant.array (VariantType.VARDICT, array));
         } catch (Error e) {
-            debug (@"[%s] failed to reply to client: $(e.message)", ctx.method);
+            Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
         }
         }
     }

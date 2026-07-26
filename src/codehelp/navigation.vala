@@ -73,7 +73,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? file = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (file == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Log.debug ("lsp", "file `%s' not found", Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;
@@ -112,7 +112,7 @@ namespace Vls.Navigation {
                 return;
             }
 
-            debug ("[%s] got best: %s (%s)", ctx.method, symbol.to_string (), symbol.type_name);
+            Vls.Log.debug ("lsp", "got best: %s (%s)", symbol.to_string (), symbol.type_name);
             if (is_highlight || symbol is Vala.LocalVariable) {
                 // if highlight, show references in current file
                 // otherwise, we may also do this if it's a local variable, since
@@ -136,7 +136,7 @@ namespace Vls.Navigation {
                     }
             }
 
-            debug ("[%s] found %d reference(s)", ctx.method, references.size);
+            Vls.Log.debug ("lsp", "found %d reference(s)", references.size);
             // Emit in a deterministic order (the underlying map is unordered).
             var entries = new Gee.ArrayList<Gee.Map.Entry<Range, Vala.CodeNode>> ();
             entries.add_all (references.entries);
@@ -175,7 +175,7 @@ namespace Vls.Navigation {
         public override void run () {
             var resolved = Server.resolve_best_node (ctx.file, (!) ctx.pos);
             if (resolved == null) {
-                debug ("[%s] no results found", ctx.method);
+                Vls.Log.debug ("lsp", "no results found");
                 reply_null ();
                 return;
             }
@@ -189,7 +189,7 @@ namespace Vls.Navigation {
             if (node is Vala.DataType && ((Vala.DataType)node).type_symbol != null)
                 node = ((Vala.DataType) node).type_symbol;
 
-            debug ("[%s] got best: %s (%s)", ctx.method, node.to_string (), node.type_name);
+            Vls.Log.debug ("lsp", "got best: %s (%s)", node.to_string (), node.type_name);
             bool is_abstract_type = (node is Vala.Interface)
                 || ((node is Vala.Class) && ((Vala.Class)node).is_abstract);
             bool is_abstract_or_virtual_method = (node is Vala.Method) &&
@@ -198,7 +198,7 @@ namespace Vls.Navigation {
                 (((Vala.Property)node).is_abstract || ((Vala.Property)node).is_virtual);
 
             if (!is_abstract_type && !is_abstract_or_virtual_method && !is_abstract_or_virtual_property) {
-                debug ("[%s] best is neither an abstract type/interface nor abstract/virtual method/property", ctx.method);
+                Vls.Log.debug ("lsp", "best is neither an abstract type/interface nor abstract/virtual method/property");
                 reply_null ();
                 return;
             } else {
@@ -238,7 +238,7 @@ namespace Vls.Navigation {
                 }
             }
 
-            debug ("[%s] found %d reference(s)", ctx.method, references.size);
+            Vls.Log.debug ("lsp", "found %d reference(s)", references.size);
             foreach (var ref_node in references) {
                 Vala.CodeNode real_node = ref_node;
                 if (ref_node is Vala.Symbol)
@@ -301,7 +301,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Log.debug ("lsp", "file `%s' not found", Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;
@@ -339,7 +339,7 @@ namespace Vls.Navigation {
             Project project;
             Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Log.debug ("lsp", "file `%s' not found", Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
             Server.reply_null (id, client, method);
                 return;

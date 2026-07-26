@@ -78,7 +78,7 @@ class Vls.DocumentationEngine : Object {
                 else
                     doc_comment = new DocComment.from_valadoc_comment (comment, nonnull_sym, compilation);
             } catch (RegexError e) {
-                warning ("failed to render comment $(e) - %s", e.message);
+                Vls.Log.warn ("lsp", "failed to render comment: %s", e.message);
             }
         }
 

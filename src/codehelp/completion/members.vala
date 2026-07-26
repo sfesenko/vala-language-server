@@ -28,8 +28,7 @@ namespace Vls.CompletionEngine {
                        Vala.SourceFile doc, Compilation compilation,
                        bool is_null_safe_access, bool is_pointer_access, bool in_oce,
                        Vala.CodeNode result, Vala.Scope? scope, Set<CompletionItem> completions,
-                       bool retry_inner = true) {
-        string method = "textDocument/completion";
+                        bool retry_inner = true) {
         var code_style = compilation.get_analysis_for_file<CodeStyleAnalyzer> (doc) as CodeStyleAnalyzer;
         Vala.Scope? current_scope = scope ?? CodeHelp.get_scope_containing_node (result);
         if (current_scope == null)
@@ -91,7 +90,7 @@ namespace Vls.CompletionEngine {
                     // don't try inner if the MemberAccess was generted by SymbolExtractor
                     retry_inner) {
                     result = ((Vala.MemberAccess)result).inner;
-                    debug (@"[$method] trying MemberAccess.inner");
+                    Vls.Log.debug ("lsp", "trying MemberAccess.inner");
                     // (new Object ()).
                     in_oce = false;
                     // maybe our expression was wrapped in extra parentheses:
@@ -101,7 +100,7 @@ namespace Vls.CompletionEngine {
                 if (result is Vala.ObjectCreationExpression &&
                     ((Vala.ObjectCreationExpression)result).member_name != null) {
                     result = ((Vala.ObjectCreationExpression)result).member_name;
-                    debug (@"[$method] trying ObjectCreationExpression.member_name");
+                    Vls.Log.debug ("lsp", "trying ObjectCreationExpression.member_name");
                     in_oce = true;
                     // maybe our object creation expression contains a member access
                     // from a namespace or some other type
@@ -111,13 +110,13 @@ namespace Vls.CompletionEngine {
                 if (is_pointer_access && data_type is Vala.PointerType) {
                     // unwrap pointer type
                     var base_type = ((Vala.PointerType)data_type).base_type;
-                    debug (@"[$method] unwrapping data type $data_type => $base_type");
+                    Vls.Log.debug ("lsp", "unwrapping data type %s => %s", data_type.to_string (), base_type.to_string ());
                     result = base_type;
                     data_type = base_type;
                     is_pointer_access = false;
                     continue;
                 }
-                debug ("[%s] could not get datatype for %s", method,
+                Vls.Log.debug ("lsp", "could not get datatype for %s",
                         result == null ? "(null)" : @"($(result.type_name)) $result");
             }
             break;      // break by default
@@ -139,7 +138,7 @@ namespace Vls.CompletionEngine {
         var fs = new NodeSearch (doc, pos, true, end_pos);
 
         if (fs.result.size == 0) {
-            debug (@"[$method] no results found for member access");
+            Vls.Log.debug ("lsp", "no results found for member access");
             Server.cleanup_request (lang_serv.server, id);
             Server.reply_null (id, client, method);
             Vala.CodeContext.pop ();

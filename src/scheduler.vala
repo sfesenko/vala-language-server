@@ -31,6 +31,7 @@ delegate T Vls.TaskFunc<T> () throws Error;
  */
 class Vls.Scheduler {
     private ThreadPool<Vls.Worker> _thread_pool;
+    private static int _worker_counter = 0;
 
     public Scheduler () throws ThreadError {
         _thread_pool = new ThreadPool<Vls.Worker>.with_owned_data (
@@ -38,6 +39,7 @@ class Vls.Scheduler {
             (int) GLib.get_num_processors (),
             false   // not exclusive — workers are shared
         );
+        Vls.Log.debug ("scheduler", "created thread pool with %d threads", GLib.get_num_processors ());
     }
 
     /**
@@ -47,7 +49,8 @@ class Vls.Scheduler {
      */
     public async T run_async<T> (owned Vls.TaskFunc<T> task, GLib.Cancellable? cancellable = null) throws Error {
         GLib.SourceFunc callback = run_async<T>.callback;
-        var worker = new Vls.Worker<T> ((owned) task, (owned) callback, cancellable);
+        int id = GLib.AtomicInt.add (ref _worker_counter, 1);
+        var worker = new Vls.Worker<T> (id, (owned) task, (owned) callback, cancellable);
         _thread_pool.add (worker);
         yield;
         if (worker.error != null)
@@ -73,7 +76,8 @@ class Vls.Scheduler {
             loop.quit ();
             return Source.REMOVE;
         };
-        var worker = new Vls.Worker<T> ((owned) task, (owned) callback, cancellable);
+        int id = GLib.AtomicInt.add (ref _worker_counter, 1);
+        var worker = new Vls.Worker<T> (id, (owned) task, (owned) callback, cancellable);
         _thread_pool.add (worker);
         loop.run ();
 
@@ -92,11 +96,13 @@ class Vls.Worker<T> {
     public T? result { get; private set; }
     public Error? error { get; private set; }
 
+    private int _id;
     private Vls.TaskFunc<T> _task;
     private GLib.SourceFunc _callback;
     private GLib.Cancellable? _cancellable;
 
-    public Worker (owned Vls.TaskFunc<T> task, owned GLib.SourceFunc callback, GLib.Cancellable? cancellable = null) {
+    public Worker (int id, owned Vls.TaskFunc<T> task, owned GLib.SourceFunc callback, GLib.Cancellable? cancellable = null) {
+        _id = id;
         _task = (owned) task;
         _callback = (owned) callback;
         _cancellable = cancellable;
@@ -107,12 +113,14 @@ class Vls.Worker<T> {
      * then schedules the callback on the main loop.
      */
     public void run () {
+        Vls.Log.set_thread_name ("worker-%d".printf (_id));
         try {
             if (_cancellable != null)
                 _cancellable.set_error_if_cancelled ();
             result = _task ();
         } catch (Error e) {
             error = e;
+            Vls.Log.warn ("scheduler", "worker task failed: %s", e.message);
         }
         GLib.Idle.add ((owned) _callback);
     }

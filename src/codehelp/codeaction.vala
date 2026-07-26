@@ -71,7 +71,7 @@ namespace Vls.CodeActions {
                     var evt = (EnumValueType)expr;
                     var e = evt.type_symbol;
                     if (!(e is Enum)) {
-                        warning ("enum value type doesn't have enum - %s", evt.to_string ());
+                        Vls.Log.warn ("lsp", "enum value type doesn't have enum - %s", evt.to_string ());
                         continue;
                     }
                     foreach (var ec in ((Enum)e).get_values ()) {

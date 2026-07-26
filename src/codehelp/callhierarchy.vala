@@ -46,7 +46,7 @@ namespace Vls.CallHierarchy {
             foreach (var pair in SymbolReferences.get_compilations_using_symbol (project, symbol))
                 foreach (SourceFile file in pair.first.code_context.get_source_files ())
                     SymbolReferences.list_in_file (file, pair.second, false, true, references);
-        debug ("got %d references as incoming calls to %s (%s)", references.size, callable.to_string (), callable.type_name);
+        Vls.Log.debug ("lsp", "got %d references as incoming calls to %s (%s)", references.size, callable.to_string (), callable.type_name);
         foreach (var reference in references) {
             if (!(reference.value.parent_node is MethodCall || reference.value.parent_node is ObjectCreationExpression))
                 continue;
@@ -142,7 +142,7 @@ namespace Vls.CallHierarchy {
             var resolved = Server.resolve_best_node (ctx.file, p.position);
 
             if (resolved == null) {
-                debug ("[%s] no results found", ctx.method);
+                Vls.Log.debug ("lsp", "no results found");
                 reply_null ();
                 return;
             }
@@ -173,7 +173,7 @@ namespace Vls.CallHierarchy {
                 });
                 reply_dict (array);
             } catch (Error e) {
-                warning ("[%s] failed to reply to client: %s", ctx.method, e.message);
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
         }
     }
@@ -199,7 +199,7 @@ namespace Vls.CallHierarchy {
                     incoming_va += Util.object_to_variant (incoming_call);
                 reply_dict (new Variant.array (VariantType.VARDICT, incoming_va));
             } catch (Error e) {
-                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
         }
     }
@@ -225,7 +225,7 @@ namespace Vls.CallHierarchy {
                     outgoing_va += Util.object_to_variant (outgoing_call);
                 reply_dict (new Variant.array (VariantType.VARDICT, outgoing_va));
             } catch (Error e) {
-                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
         }
     }

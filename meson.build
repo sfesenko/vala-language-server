@@ -67,6 +67,7 @@ add_project_arguments(['--enable-gobject-tracing', '--fatal-warnings'], language
 
 extra_vala_sources += files([
   'src/util.vala',
+  'src/log.vala',
 ])
 
 # Minimal Vala sources for the Foundation unit tests (compiled in-process, no

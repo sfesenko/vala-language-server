@@ -105,7 +105,7 @@ namespace Vls.TypeHierarchy {
             var resolved = Server.resolve_best_node (ctx.file, p.position);
 
             if (resolved == null) {
-                debug ("[%s] no results found", ctx.method);
+                Vls.Log.debug ("lsp", "no results found");
                 reply_null ();
                 return;
             }
@@ -141,7 +141,7 @@ namespace Vls.TypeHierarchy {
                 });
                 reply_dict (array);
             } catch (Error e) {
-                warning ("[%s] failed to reply to client: %s", ctx.method, e.message);
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
         }
     }
@@ -174,7 +174,7 @@ namespace Vls.TypeHierarchy {
                 }
                 reply_dict (new Variant.array (VariantType.VARDICT, array));
             } catch (Error e) {
-                debug ("[%s] failed to reply to client: %s", ctx.method, e.message);
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
         }
     }

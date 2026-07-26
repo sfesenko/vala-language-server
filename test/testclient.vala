@@ -41,8 +41,8 @@ class Vls.TestClient : Jsonrpc.Server {
     public TestClient (string server_location, string root_path, string[] env_vars, bool unset_env) throws Error {
         TestClient.instances.add (this);
 
-        Log.set_handler (null, LogLevelFlags.LEVEL_MASK, log_handler);
-        Log.set_handler ("jsonrpc-server", LogLevelFlags.LEVEL_MASK, log_handler);
+        GLib.Log.set_handler (null, LogLevelFlags.LEVEL_MASK, log_handler);
+        GLib.Log.set_handler ("jsonrpc-server", LogLevelFlags.LEVEL_MASK, log_handler);
 
         this.root_path = root_path;
         this.launcher = new SubprocessLauncher (SubprocessFlags.STDIN_PIPE | SubprocessFlags.STDOUT_PIPE);

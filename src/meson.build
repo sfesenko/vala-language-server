@@ -61,6 +61,7 @@ vls_src = files([
   'projects/types.vala',
   'protocol.vala',
   'reporter.vala',
+  'log.vala',
   'request.vala',
   'scheduler.vala',
   'documentmanager.vala',

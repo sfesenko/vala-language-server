@@ -51,7 +51,8 @@ namespace Vls.Workspace {
                 });
             }
 
-            debug (@"[%s] found $(json_array.get_length ()) element(s) matching `$query'", ctx.method);
+            Vls.Log.debug ("lsp", "found %d element(s) matching `%s'",
+                           json_array.get_length (), query);
             reply_json_array (json_array);
         }
     }

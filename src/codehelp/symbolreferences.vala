@@ -232,7 +232,7 @@ namespace Vls.SymbolReferences {
                 try {
                     match_info.next ();
                 } catch (Error e) {
-                    warning ("failed to get next match - %s", e.message);
+                    Vls.Log.warn ("lsp", "failed to get next match - %s", e.message);
                     break;
                 }
             }
@@ -260,7 +260,7 @@ namespace Vls.SymbolReferences {
                     try {
                         match_info.next ();
                     } catch (Error e) {
-                        warning ("could not get next match - %s", e.message);
+                        Vls.Log.warn ("lsp", "could not get next match - %s", e.message);
                         break;
                     }
                 }
@@ -336,7 +336,7 @@ namespace Vls.SymbolReferences {
                 }
 
                 if (unbalanced_rangles != 0)
-                    warning ("unbalanced right angles in representation of code node %s: %s",
+                    Vls.Log.warn ("lsp", "unbalanced right angles in representation of code node %s: %s",
                              code_node.type_name, representation);
             }
 
@@ -381,7 +381,7 @@ namespace Vls.SymbolReferences {
                             && substring != "weak" && substring != "namespace" &&
                             substring != "class" && substring != "interface" && substring != "struct" &&
                             substring != "errordomain" && substring != "enum")
-                            warning ("expected `.', got `%s' in symbol %s for %s (%s)",
+                            Vls.Log.warn ("lsp", "expected `.', got `%s' in symbol %s for %s (%s)",
                              substring, symbol.get_full_name (), symbol.type_name, representation);
                         else
                             end = 0;

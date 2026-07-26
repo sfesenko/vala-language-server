@@ -353,7 +353,7 @@ namespace Vls.Util {
                 }
             }
         } catch (Error e) {
-            warning ("could not get next file in dir %s", dir.get_path ());
+            Vls.Log.warn ("lsp", "could not get next file in dir %s", dir.get_path ());
         }
 
         return found;

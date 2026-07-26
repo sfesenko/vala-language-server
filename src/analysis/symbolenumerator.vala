@@ -42,13 +42,13 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
         try {
             uri = Filename.to_uri (file.filename);
         } catch (Error e) {
-            warning ("%s is not a URI!", file.filename);
+            Vls.Log.warn ("lsp", "%s is not a URI!", file.filename);
             return;
         }
 
         // Guard against corrupted code_context (e.g. GIR packages with NULL symbols)
         if (file.context == null || file.context.root == null || file.context.root.scope == null) {
-            warning ("SymbolEnumerator: file %s has corrupted code context — skipping", file.filename);
+            Vls.Log.warn ("lsp", "SymbolEnumerator: file %s has corrupted code context — skipping", file.filename);
             return;
         }
 
@@ -77,7 +77,7 @@ class Vls.SymbolEnumerator : AbstractAnalyzer {
         string? full_name = null;
         full_name = sym.get_full_name ();
         if (full_name == null) {
-            debug ("SymbolEnumerator: skipping symbol with corrupted full name");
+            Vls.Log.debug ("lsp", "SymbolEnumerator: skipping symbol with corrupted full name");
             return null;
         }
         var current_sym = (containers.is_empty || adding_parent) ? null : containers.peek_head ();

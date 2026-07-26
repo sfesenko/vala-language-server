@@ -63,11 +63,11 @@ class Vls.AnalysisCache : Object {
 
         if (!has_cached || type_cache[typeof (T)].last_updated < compilation.last_updated) {
             if (has_cached)
-                debug ("[SEMTOK] get_analysis_for_file: stale %s for %s (comp_lu=%s)",
+                Vls.Log.debug ("compile", "get_analysis_for_file: stale %s for %s (comp_lu=%s)",
                        typeof (T).name (), source.filename,
                        Util.ts_to_string (compilation.last_updated));
             else
-                debug ("[SEMTOK] get_analysis_for_file: no cached %s for %s, creating",
+                Vls.Log.debug ("compile", "get_analysis_for_file: no cached %s for %s, creating",
                        typeof (T).name (), source.filename);
             Vala.CodeContext.push (compilation.code_context);
             try {
@@ -84,7 +84,7 @@ class Vls.AnalysisCache : Object {
                 if (analysis != null) {
                     analysis.last_updated = GLib.get_real_time ();
                     type_cache[typeof (T)] = analysis;
-                    debug ("[SEMTOK] get_analysis_for_file: created %s, analysis_lu=%s",
+                    Vls.Log.debug ("compile", "get_analysis_for_file: created %s, analysis_lu=%s",
                            typeof (T).name (), Util.ts_to_string (analysis.last_updated));
                 }
             } finally {
@@ -92,8 +92,6 @@ class Vls.AnalysisCache : Object {
             }
         } else {
             analysis = type_cache[typeof (T)];
-            debug ("[SEMTOK] get_analysis_for_file: using cached %s for %s",
-                   typeof (T).name (), source.filename);
         }
 
         return (T) analysis;

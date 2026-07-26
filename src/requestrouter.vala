@@ -32,10 +32,15 @@ class Vls.RequestRouter : Object {
     }
 
     public bool handle_call (Jsonrpc.Client client, string method, Variant id, Variant parameters) {
+        string req_id = new Request (id, method).to_string ();
+        Vls.Log.push_context (req_id);
+        Vls.Log.info (null, "→ entered");
+
         // Register per-request cancellable for fine-grained cancellation.
         _server.request_cancellables[new Request (id)] = new Cancellable ();
 
-        switch (method) {
+        try {
+            switch (method) {
             case "initialize":
                 _server.initialize (client, method, id, parameters);
                 break;
@@ -140,50 +145,60 @@ class Vls.RequestRouter : Object {
                 break;
 
             default:
-                warning ("unhandled call `%s'", method);
+                Vls.Log.warn (null, "unhandled call `%s'", method);
                 return false;
+            }
+            Vls.Log.info (null, "← completed");
+        } finally {
+            Vls.Log.pop_context ();
         }
         return true;
     }
 
     public void notification (Jsonrpc.Client client, string method, Variant parameters) {
-        switch (method) {
-            case "exit":
-                _server.exit ();
-                break;
+        Vls.Log.push_context (method);
+        try {
+            switch (method) {
+                case "exit":
+                    _server.exit ();
+                    break;
 
-            case "$/cancelRequest":
-                _server.cancel_request (client, parameters);
-                break;
+                case "$/cancelRequest":
+                    _server.cancel_request (client, parameters);
+                    break;
 
-            case "$/setTrace":
-                string? trace_value = null;
-                parameters.lookup ("value", "s", out trace_value);
-                _server.trace = Lsp.TraceValue.parse (trace_value);
-                break;
+                case "$/setTrace":
+                    string? trace_value = null;
+                    parameters.lookup ("value", "s", out trace_value);
+                    _server.trace = Lsp.TraceValue.parse (trace_value);
+                    Vls.Log.set_trace ((int) _server.trace);
+                    break;
 
-            case "initialized":
-                break;
+                case "initialized":
+                    break;
 
-            case "textDocument/didOpen":
-                _server.text_document_did_open (client, parameters);
-                break;
+                case "textDocument/didOpen":
+                    _server.text_document_did_open (client, parameters);
+                    break;
 
-            case "textDocument/didSave":
-                _server.text_document_did_save (client, parameters);
-                break;
+                case "textDocument/didSave":
+                    _server.text_document_did_save (client, parameters);
+                    break;
 
-            case "textDocument/didClose":
-                _server.text_document_did_close (client, parameters);
-                break;
+                case "textDocument/didClose":
+                    _server.text_document_did_close (client, parameters);
+                    break;
 
-            case "textDocument/didChange":
-                _server.text_document_did_change (client, parameters);
-                break;
+                case "textDocument/didChange":
+                    _server.text_document_did_change (client, parameters);
+                    break;
 
-            default:
-                warning ("unhandled notification `%s'", method);
-                break;
+                default:
+                    Vls.Log.warn (null, "unhandled notification `%s'", method);
+                    break;
+            }
+        } finally {
+            Vls.Log.pop_context ();
         }
     }
 }

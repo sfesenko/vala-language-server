@@ -77,7 +77,7 @@ class Vls.FindScope : Vala.CodeVisitor {
         }
 
         if (sr.begin.line > sr.end.line) {
-            warning (@"wtf vala: $(symbol.type_name): $sr");
+            Vls.Log.warn ("lsp", "wtf vala: %s: %s", symbol.type_name, sr.to_string ());
             return;
         }
 

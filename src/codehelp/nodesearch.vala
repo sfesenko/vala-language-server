@@ -55,7 +55,7 @@ class Vls.NodeSearch : Vala.CodeVisitor {
         }
 
         if (sr.begin.line > sr.end.line) {
-            warning (@"wtf vala: $(node.type_name): $sr");
+            Vls.Log.warn ("lsp", "wtf vala: %s: %s", node.type_name, sr.to_string ());
             return false;
         }
 

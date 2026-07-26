@@ -53,7 +53,7 @@ class Vls.SymbolVisitor : CodeVisitor {
         if (sr.file != file)
             return false;
         if (sr.begin.line > sr.end.line) {
-            warning ("wtf Vala: %s @ %s", node.type_name, sr.to_string ());
+            Vls.Log.warn ("lsp", "wtf Vala: %s @ %s", node.type_name, sr.to_string ());
             return false;
         }
         return true;

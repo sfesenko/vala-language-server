@@ -28,8 +28,7 @@ namespace Vls.CompletionEngine {
                        Vala.SourceFile doc, Position pos,
                        Vala.Scope best_scope,
                        Set<CompletionItem> completions,
-                       bool in_oce) {
-        string method = "textDocument/completion";
+                        bool in_oce) {
         var code_style = compilation.get_analysis_for_file<CodeStyleAnalyzer> (doc);
         bool in_instance = false;
         bool inside_static_or_class_construct_block = false;
@@ -138,7 +137,7 @@ namespace Vls.CompletionEngine {
                 add_completions_for_ns (lang_serv, project, code_style,
                                         (Vala.Namespace) owner, best_scope, completions, in_oce);
             } else {
-                debug (@"[$method] ignoring owner ($owner) ($(owner.type_name)) of scope");
+                Vls.Log.debug ("lsp", @"ignoring owner ($owner) ($(owner.type_name)) of scope");
             }
         }
         // show members of all imported namespaces
@@ -296,7 +295,7 @@ namespace Vls.CompletionEngine {
                 insert_text.append (return_type_representation);
                 insert_text.append_c (' ');
             } else {
-                warning ("no return type for symbol %s", sym.name);
+                Vls.Log.warn ("lsp", "no return type for symbol %s", sym.name);
             }
 
             label.append (sym.name);

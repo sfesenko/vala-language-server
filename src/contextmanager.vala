@@ -82,13 +82,13 @@ class Vls.ContextManager : Object {
         // The worker will check this and discard its result.
         foreach (var entry in compile_cancellables.entries)
             entry.value.cancel ();
-        debug ("[SEMTOK] request_context_update: requests=%d, delay=%dms",
-               (int) update_context_requests, (int) (delay_us / 1000));
+        Vls.Log.debug ("context", "request_context_update: requests=%d, delay=%dms",
+                       (int) update_context_requests, (int) (delay_us / 1000));
     }
 
     public bool check_update_context () {
         if (update_context_requests > 0 && get_monotonic_time () >= update_context_time_us) {
-            debug ("[SEMTOK] check_update_context: starting rebuild (requests=%d)", (int) update_context_requests);
+            Vls.Log.debug ("context", "check_update_context: starting rebuild (requests=%d)", (int) update_context_requests);
 
             Project[] all_projects = _server.project_manager.projects.get_keys_as_array ();
             all_projects += _server.project_manager.default_project;
@@ -100,7 +100,7 @@ class Vls.ContextManager : Object {
             // arriving during the compile must still see a non-zero counter
             // so they wait instead of proceeding against stale data.
             if (compile_in_progress_count > 0) {
-                debug ("[SEMTOK] check_update_context: %d compile(s) in progress, deferring", compile_in_progress_count);
+                Vls.Log.debug ("context", "check_update_context: %d compile(s) in progress, deferring", compile_in_progress_count);
                 return true;
             }
 
@@ -116,7 +116,7 @@ class Vls.ContextManager : Object {
 
                     foreach (var compilation in project.get_compilations ()) {
                         if (compilation.is_stale ()) {
-                            debug ("[SEMTOK] check_update_context: starting async compile for %s", compilation.id);
+                            Vls.Log.debug ("context", "check_update_context: starting async compile for %s", compilation.id);
                             compile_in_progress_count++;
                             // create a fresh cancellable for this compile.
                             // request_context_update() cancels it when new edits arrive.
@@ -133,16 +133,16 @@ class Vls.ContextManager : Object {
                                     // while this compile was running — discard the stale result.
                                     was_cancelled = compile_canc.is_cancelled ();
                                     if (was_cancelled) {
-                                        debug ("[SEMTOK] async compile cancelled for %s (newer edit arrived)", compilation.id);
+                                        Vls.Log.debug ("context", "async compile cancelled for %s (newer edit arrived)", compilation.id);
                                     } else {
                                         bool accepted = compilation.swap_compile_result (result);
-                                        debug ("[SEMTOK] async compile done for %s (swap %s)",
-                                               compilation.id, accepted ? "accepted" : "rejected: corrupted AST");
+                                        Vls.Log.debug ("context", "async compile done for %s (swap %s)",
+                                                       compilation.id, accepted ? "accepted" : "rejected: corrupted AST");
                                     }
                                 } catch (Error e) {
                                     was_cancelled = compile_canc.is_cancelled ();
                                     if (!was_cancelled)
-                                        warning ("Async compile failed: %s", e.message);
+                                        Vls.Log.warn ("context", "async compile failed: %s", e.message);
                                 } finally {
                                     compile_in_progress_count--;
                                     compile_cancellables.unset (compilation);
@@ -169,7 +169,7 @@ class Vls.ContextManager : Object {
                                     try {
                                         _server.project_manager.default_project.close (uri);
                                         _server.document_manager.add_discarded_file (uri);
-                                        debug ("discarding %s from DefaultProject", Util.project_uri (uri));
+                                        Vls.Log.debug ("context", "discarding %s from DefaultProject", Util.project_uri (uri));
                                     } catch (Error e) {
                                         // just ignore
                                     }
@@ -181,7 +181,7 @@ class Vls.ContextManager : Object {
                     foreach (var comp in project.get_compilations ())
                         _server.publish_diagnostics (project, comp, update_context_client);
                 } catch (Error e) {
-                    warning ("Failed to rebuild and/or reconfigure project: %s", e.message);
+                    Vls.Log.warn ("context", "failed to rebuild and/or reconfigure project: %s", e.message);
                     _server.show_message (update_context_client,
                         @"Failed to rebuild/reconfigure project: $(e.message)",
                         MessageType.Error);
@@ -210,7 +210,7 @@ class Vls.ContextManager : Object {
                             ((TextDocument)doc).last_saved_content = doc.content;
                         _server.publish_diagnostics (_server.project_manager.default_project, opened.second, update_context_client);
                     } catch (Error e) {
-                        warning ("Failed to reopen in default project %s - %s", uri, e.message);
+                        Vls.Log.warn ("context", "failed to reopen in default project %s - %s", uri, e.message);
                         try {
                             update_context_client.send_notification (
                                 "textDocument/publishDiagnostics",
@@ -220,7 +220,7 @@ class Vls.ContextManager : Object {
                                 )
                             );
                         } catch (Error e2) {
-                            warning ("Failed to clear diagnostics for %s - %s", uri, e2.message);
+                            Vls.Log.warn ("context", "failed to clear diagnostics for %s - %s", uri, e2.message);
                         }
                     }
                 }
@@ -238,9 +238,9 @@ class Vls.ContextManager : Object {
 
     public void wait_for_context_update (Variant id, owned OnContextUpdatedFunc on_context_updated_func,
                                           Compilation? compilation = null, bool stale_safe = false) {
-        debug ("[SEMTOK] wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s stale_safe=%s",
-               id.print (false), (int) update_context_requests, pending_requests.size,
-               compilation != null ? compilation.id : "any", stale_safe.to_string ());
+        Vls.Log.debug ("context", "wait_for_context_update: id=%s, requests=%d, pending=%d, comp=%s stale_safe=%s",
+                       id.print (false), (int) update_context_requests, pending_requests.size,
+                       compilation != null ? compilation.id : "any", stale_safe.to_string ());
         // Stale-safe requests (hover, symbols, etc.) can use a slightly
         // stale AST, but they must still wait for in-flight compiles to
         // finish so they don't run against a mid-swap AST that's about
@@ -264,7 +264,7 @@ class Vls.ContextManager : Object {
         }
         var req = new Request (id);
         if (pending_requests.has_key (req))
-            warning (@"Request ($req): request already in pending requests, this should not happen");
+            Vls.Log.warn ("context", "request %s already in pending requests, this should not happen", req.to_string ());
         else
             pending_requests[req] = new PendingRequest (req, (owned) on_context_updated_func);
         // Safety net: if a rebuild was already in flight when we registered
@@ -300,6 +300,7 @@ class Vls.ContextManager : Object {
         var pr = find_pending (req);
         if (pr != null) {
             pending_requests.unset (req);
+            Vls.Log.debug ("context", "cancelled pending request %s", req.to_string ());
             pr.callback (true);
         }
     }
@@ -313,6 +314,7 @@ class Vls.ContextManager : Object {
             return;
         var fired = pending_requests.values.to_array ();
         pending_requests.clear ();
+        Vls.Log.debug ("context", "fired %d pending context updates", fired.length);
         foreach (var pr in fired) {
             pr.callback (false);
         }

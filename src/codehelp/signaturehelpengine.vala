@@ -322,7 +322,7 @@ namespace Vls.SignatureHelpEngine {
                                                                       Vala.MethodCall mc,
                                                                       Vala.CodeContext context,
                                                                       int initial_arg_count) {
-        debug ("generating printf-style arguments for %s", CodeHelp.get_symbol_name_representation (method, null));
+        Vls.Log.debug ("lsp", "generating printf-style arguments for %s", CodeHelp.get_symbol_name_representation (method, null));
 
         var format_literal = mc.get_format_literal ();
 

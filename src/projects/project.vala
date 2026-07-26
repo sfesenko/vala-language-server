@@ -69,7 +69,7 @@ abstract class Vls.Project : Object {
         var unknown = new ArrayList<BuildTask> ();
 
         // 1. Find producers + consumers
-        debug ("Project: analyzing build targets - producers and consumers ...");
+        Vls.Log.debug ("compile", "analyzing build targets - producers and consumers ...");
         foreach (var btarget in build_targets) {
             bool is_consumer_or_producer = false;
             foreach (var file_consumed in btarget.input) {
@@ -89,14 +89,14 @@ abstract class Vls.Project : Object {
                     throw new ProjectError.CONFIGURATION (
                         "Only build tasks can be initially neither producers nor consumers, not "
                         + btarget.get_class ().get_name () + "!");
-                debug ("\t- %s neither produces nor consumes any files (for now)", btarget.id);
+                Vls.Log.debug ("compile", "\t- %s neither produces nor consumes any files (for now)", btarget.id);
             }
             // add btarget to neither anyway, if it is a build task
             if (btarget is BuildTask)
                 unknown.add ((BuildTask) btarget);
         }
 
-        debug ("Project: analyzed %d targets (%d consumers, %d producers)",
+        Vls.Log.debug ("compile", "analyzed %d targets (%d consumers, %d producers)",
                build_targets.size, consumers_of.size, producers_for.size);
 
         // 2. For those in the 'unknown' category, attempt to guess whether
@@ -121,14 +121,14 @@ abstract class Vls.Project : Object {
                     consumers_of[file].add (btask);
                     btask.input.add (file);
                     files_categorized.add (file);
-                    debug ("\t- %s consumes %s", btask.id, Util.project_path (file.get_path ()));
+                    Vls.Log.debug ("compile", "\t- %s consumes %s", btask.id, Util.project_path (file.get_path ()));
                 } else if (consumers_of.has_key (file)) {
                     if (!producers_for.has_key (file))
                         producers_for[file] = new HashSet<BuildTarget> ();
                     producers_for[file].add (btask);
                     btask.output.add (file);
                     files_categorized.add (file);
-                    debug ("\t- %s produces %s", btask.id, Util.project_path (file.get_path ()));
+                    Vls.Log.debug ("compile", "\t- %s produces %s", btask.id, Util.project_path (file.get_path ()));
                 }
             }
             btask.used_files.remove_all (files_categorized);
@@ -142,7 +142,7 @@ abstract class Vls.Project : Object {
                 // are outputs to the next target(s)
                 if (producers_for.has_key (uncategorized_file)) {
                     producers_for[uncategorized_file].foreach (conflict => {
-                        warning ("Project: build target %s already produces file (%s) produced by %s.",
+                        Vls.Log.warn ("compile", "build target %s already produces file (%s) produced by %s.",
                                  conflict.id, uncategorized_file.get_path (), btask.id);
                         return true;
                     });
@@ -152,7 +152,7 @@ abstract class Vls.Project : Object {
                 }
                 producers_for[uncategorized_file].add (btask);
                 btask.output.add (uncategorized_file);
-                debug ("\t- %s produces %s", btask.id, Util.project_path (uncategorized_file.get_path ()));
+                    Vls.Log.debug ("compile", "\t- %s produces %s", btask.id, Util.project_path (uncategorized_file.get_path ()));
             }
             btask.used_files.clear ();
         }
@@ -193,7 +193,7 @@ abstract class Vls.Project : Object {
                         producers_for[file].any_match (t => t.equal_to (build_targets [i]))) {
                         needed_by_vala_compilation = true;
                         build_targets[j].dependencies[file] = build_targets[i];
-                        debug ("Project: found dependency: %s --(%s)--> %s",
+                        Vls.Log.debug ("compile", "found dependency: %s --(%s)--> %s",
                                build_targets[i].id, file.get_path (), build_targets[j].id);
                     }
                 }
@@ -203,7 +203,7 @@ abstract class Vls.Project : Object {
         }
         foreach (var target in build_targets)
             if (!(target in targets_to_keep))
-                debug ("target %s will be removed", target.id);
+                Vls.Log.debug ("compile", "target %s will be removed", target.id);
         build_targets.clear ();
         build_targets.add_all (targets_to_keep);
 
@@ -225,7 +225,7 @@ abstract class Vls.Project : Object {
                 File? parent = file.get_parent ();
                 if (parent != null && parent.query_file_type (FileQueryInfoFlags.NONE) == FileType.DIRECTORY) {
                     if (!monitored_files.has_key (parent)) {
-                        debug ("Project: obtaining a new file monitor for %s ...",
+                        Vls.Log.debug ("compile", "obtaining a new file monitor for %s ...",
                                  Util.project_path (parent.get_path ()));
                         FileMonitor file_monitor = parent.monitor_directory (FileMonitorFlags.NONE, cancellable);
                         file_monitor.changed.connect (file_changed_event);
@@ -243,15 +243,15 @@ abstract class Vls.Project : Object {
             return;
 
         if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            debug ("Project: watched file %s had an attribute changed", Util.project_path (src.get_path ()));
+            Vls.Log.debug ("compile", "watched file %s had an attribute changed", Util.project_path (src.get_path ()));
             changed ();
         }
         if (FileMonitorEvent.CHANGED in event_type) {
-            debug ("Project: watched file %s was changed", Util.project_path (src.get_path ()));
+            Vls.Log.debug ("compile", "watched file %s was changed", Util.project_path (src.get_path ()));
             changed ();
         }
         if (FileMonitorEvent.DELETED in event_type) {
-            debug ("Project: watched file %s was deleted", Util.project_path (src.get_path ()));
+            Vls.Log.debug ("compile", "watched file %s was deleted", Util.project_path (src.get_path ()));
             // remove this file monitor since the file was deleted
             FileMonitor file_monitor;
             if (monitored_files.unset (src, out file_monitor)) {

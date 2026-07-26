@@ -40,7 +40,7 @@ namespace Vls {
         }
 
         public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
-            error ("MesonTarget: serialization not supported");
+            error ("serialization not supported");
         }
 
         public bool deserialize_property (string property_name, out Value val, ParamSpec pspec, Json.Node property_node) {
@@ -58,7 +58,7 @@ namespace Vls {
                     if (command_str != null)
                         command_array = Util.get_arguments_from_command_str (property_node.get_string ());
                 } catch (RegexError e) {
-                    warning ("failed to parse `%s': %s", property_node.get_string (), e.message);
+                    Vls.Log.warn ("compile", "failed to parse `%s': %s", property_node.get_string (), e.message);
                 }
                 val.set_boxed (command_array);
                 return true;
@@ -117,7 +117,7 @@ namespace Meson {
         }
 
         public Json.Node serialize_property (string property_name, Value value, ParamSpec pspec) {
-            error ("MesonTarget: serialization not supported");
+            error ("serialization not supported");
         }
 
         public bool deserialize_property (string property_name, out Value val, ParamSpec pspec, Json.Node property_node) {

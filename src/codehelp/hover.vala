@@ -104,7 +104,7 @@ namespace Vls.HoverHandler {
             } else if (node is Vala.UsingDirective) {
                 symbol = ((Vala.UsingDirective)node).namespace_symbol;
             } else {
-                warning ("node as %s not matched", node.type_name);
+                Vls.Log.warn ("lsp", "node as %s not matched", node.type_name);
             }
 
             // don't show temporary variables
@@ -191,7 +191,7 @@ namespace Vls.HoverHandler {
             Project project;
             Vala.SourceFile? doc = server.project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                debug ("[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Log.debug ("lsp", "file `%s' not found", Util.project_uri (p.textDocument.uri));
                 Server.cleanup_request (server, id);
                 Server.reply_null (id, client, method);
                 return;

@@ -84,11 +84,11 @@ namespace Vls.SemanticTokensHandler {
         bool is_delta = previous_result_id != null && doc_uri != null
             && previous_results.has_key (previous_result_id)
             && previous_results[previous_result_id].uri == doc_uri;
-        debug ("[SEMTOK] reply_with_tokens: delta=%s, data_size=%d, prev_id=%s",
+        Vls.Log.debug ("lsp", "reply_with_tokens: delta=%s, data_size=%d, prev_id=%s",
                is_delta.to_string (), data.size, previous_result_id ?? "null");
         if (is_delta) {
             var old = previous_results[previous_result_id];
-            debug ("[SEMTOK] delta: old_size=%d, new_size=%d", old.data.size, data.size);
+            Vls.Log.debug ("lsp", "delta: old_size=%d, new_size=%d", old.data.size, data.size);
             string result_id = store_result (doc_uri, data);
             var result = Vls.Foundation.SemanticTokensResponseBuilder.build_delta (
                 result_id, old.data, data);
@@ -96,20 +96,20 @@ namespace Vls.SemanticTokensHandler {
                 client.reply (id, result, Server.cancellable);
                 Server.cleanup_request (server, id);
             } catch (Error e) {
-                debug (@"[$method] failed to reply to client: $(e.message)");
+                Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
             }
             return;
         }
 
         // Full response
-        debug ("[SEMTOK] full response: data_size=%d", data.size);
+        Vls.Log.debug ("lsp", "full response: data_size=%d", data.size);
         string result_id = doc_uri != null ? store_result (doc_uri, data) : "0";
         var result = Vls.Foundation.SemanticTokensResponseBuilder.build_full (result_id, data);
         try {
             client.reply (id, result, Server.cancellable);
             Server.cleanup_request (server, id);
         } catch (Error e) {
-            debug (@"[$method] failed to reply to client: $(e.message)");
+            Vls.Log.warn ("lsp", "failed to reply to client: %s", e.message);
         }
     }
 

@@ -74,7 +74,7 @@ namespace Vls.CodeHelp {
         // never come from two different buffers.
         var slice = Vls.Foundation.slice_sourceref (sr);
         if (slice == null) {
-            warning ("expression %s has bad source reference %s",
+            Vls.Log.warn ("lsp", "expression %s has bad source reference %s",
                      node.to_string (), sr.to_string ());
             return node.to_string ();
         }

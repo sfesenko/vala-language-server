@@ -566,7 +566,7 @@ namespace Vls.CodeHelp {
                 builder.append_c (')');
                 return builder.str;
             }
-            warning ("symbol %s unmatched", sym.type_name);
+            Vls.Log.warn ("lsp", "symbol %s unmatched", sym.type_name);
             return null;
         }
 

@@ -26,7 +26,7 @@ namespace Vls.MesonIntrospection {
         // first, try to load the file in ${build_dir}/meson-info/intro-${command}.json
         try {
             var input_file = File.new_build_filename (build_dir, "meson-info", @"intro-$command.json");
-            debug ("loading file %s ...", Util.project_path (input_file.get_path ()));
+            Vls.Log.debug ("compile", "loading file %s ...", Util.project_path (input_file.get_path ()));
             parser.load_from_stream (input_file.read (cancellable), cancellable);
         } catch (IOError e) {
             if (e is IOError.NOT_FOUND) {
@@ -44,7 +44,7 @@ namespace Vls.MesonIntrospection {
                     command_str += part;
                 }
 
-                debug ("file does not exist, fallback to %s", command_str);
+                Vls.Log.debug ("compile", "file does not exist, fallback to %s", command_str);
 
                 proc_stdout = scheduler.run_sync<string> (() => {
                     string stdout_str;
@@ -63,7 +63,7 @@ namespace Vls.MesonIntrospection {
                 });
 
                 if (proc_status != 0) {
-                    warning ("command `%s' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
+                    Vls.Log.warn ("compile", "command `%s' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
                              command_str, build_dir, proc_status, proc_stdout, proc_stderr);
                     throw new ProjectError.INTROSPECTION (@"meson command `$command_str' failed with exit code $proc_status");
                 }
@@ -99,7 +99,7 @@ namespace Vls.MesonIntrospection {
         });
 
         if (meson_version_proc_status != 0) {
-            warning ("failed to get version, exit code %d\n----stdout:\n%s\n----stderr:\n%s",
+            Vls.Log.warn ("compile", "failed to get version, exit code %d\n----stdout:\n%s\n----stderr:\n%s",
                      meson_version_proc_status, meson_version_proc_stdout, meson_version_proc_stderr);
             throw new ProjectError.CONFIGURATION (@"meson --version failed with exit code $meson_version_proc_status");
         }
@@ -107,7 +107,7 @@ namespace Vls.MesonIntrospection {
         meson_version_proc_stdout = meson_version_proc_stdout.strip ();
 
         if (Util.compare_versions (meson_version_proc_stdout, "0.50.0") < 0) {
-            warning ("meson < 0.50.0 not supported (version was '%s')", meson_version_proc_stdout);
+            Vls.Log.warn ("compile", "meson < 0.50.0 not supported (version was '%s')", meson_version_proc_stdout);
             throw new ProjectError.VERSION_UNSUPPORTED ("meson < 0.50.0 not supported");
         }
     }

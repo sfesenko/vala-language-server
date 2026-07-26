@@ -113,7 +113,7 @@ namespace Vls.CodeLensEngine {
             arguments.append_val (Util.object_to_variant (new Location.from_sourceref (current_symbol.source_reference)));
             arguments.append_val (Util.object_to_variant (new Location.from_sourceref (target_symbol.source_reference)));
         } catch (Error e) {
-            warning ("failed to create arguments for command: %s", e.message);
+            Vls.Log.warn ("lsp", "failed to create arguments for command: %s", e.message);
         }
 
         return arguments;

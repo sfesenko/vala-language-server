@@ -79,7 +79,7 @@ namespace Vls {
 
         // Guard against corrupted code_context (e.g. GIR packages with NULL symbols)
         if (file.context == null || file.context.root == null || file.context.root.scope == null) {
-            warning ("SemanticTokensAnalyzer: file %s has corrupted code context — skipping", file.filename);
+            Vls.Log.warn ("lsp", "SemanticTokensAnalyzer: file %s has corrupted code context — skipping", file.filename);
             return;
         }
 
@@ -113,7 +113,7 @@ namespace Vls {
             }
         }
 
-        debug ("[SEMTOK] analyzer created, file=%s, content_len=%d, interp_spans=%d",
+        Vls.Log.debug ("lsp", "analyzer created, file=%s, content_len=%d, interp_spans=%d",
                file.filename, buf != null ? buf.length : 0, interpolation_spans.size);
         this.visit_source_file (file);
     }
@@ -212,7 +212,7 @@ namespace Vls {
             int name_start = Util.find_name_in_text (text, name);
             if (name_start < 0) {
                 if (name[0] != '.' && name[0] != '_')
-                    debug ("[SEMTOK] add_name_token: name '%s' not found in text for node=%s",
+                    Vls.Log.debug ("lsp", "add_name_token: name '%s' not found in text for node=%s",
                            name, node.type_name);
                 return;
             }
@@ -221,7 +221,7 @@ namespace Vls {
             uint length = (uint) name.length;
             uint max_len = line_len (line);
             if (character + length > max_len) {
-                debug ("[SEMTOK] add_name_token bounds fail: line=%u, char=%u, len=%u > max=%u, type=%u, node=%s",
+                Vls.Log.debug ("lsp", "add_name_token bounds fail: line=%u, char=%u, len=%u > max=%u, type=%u, node=%s",
                        line, character, length, max_len, token_type, node.type_name);
                 return;
             }
@@ -355,7 +355,7 @@ namespace Vls {
                     return (int) a.line - (int) b.line;
                 return (int) a.character - (int) b.character;
             });
-            debug ("[SEMTOK] visit_source_file: produced %u tokens", tokens.size);
+            Vls.Log.debug ("lsp", "visit_source_file: produced %u tokens", tokens.size);
         }
 
         public override void visit_namespace (Vala.Namespace ns) {

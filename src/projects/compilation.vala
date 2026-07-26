@@ -165,7 +165,7 @@ class Vls.Compilation : BuildTarget {
         for (int arg_i = -1; (arg_i = Util.iterate_valac_args (args, out flag_name, out arg_value, arg_i)) < args.length;) {
             if (flag_name == "directory") {
                 if (arg_value == null) {
-                    warning ("Compilation(%s) null --directory", id);
+                    Vls.Log.warn ("compile", "Compilation(%s) null --directory", id);
                     continue;
                 }
                 directory = Util.realpath (arg_value, output_dir);
@@ -206,13 +206,13 @@ class Vls.Compilation : BuildTarget {
                 _target_glib = arg_value;
             } else if (flag_name == "vapi" || flag_name == "gir" || flag_name == "internal-vapi") {
                 if (arg_value == null) {
-                    warning ("Compilation(%s) --%s is null", id, flag_name);
+                    Vls.Log.warn ("compile", "Compilation(%s) --%s is null", id, flag_name);
                     continue;
                 }
 
                 string path = Util.realpath (arg_value, directory);
                 if (!set_directory)
-                    warning ("Compilation(%s) no --directory given, assuming %s", id, directory);
+                    Vls.Log.warn ("compile", "Compilation(%s) no --directory given, assuming %s", id, directory);
                 if (flag_name == "vapi")
                     _output_vapi = path;
                 else if (flag_name == "gir")
@@ -223,7 +223,7 @@ class Vls.Compilation : BuildTarget {
                 output.add (File.new_for_path (path));
             } else if (flag_name == null) {
                 if (arg_value == null) {
-                    warning ("Compilation(%s) failed to parse argument #%d (%s)", id, arg_i, args[arg_i]);
+                    Vls.Log.warn ("compile", "Compilation(%s) failed to parse argument #%d (%s)", id, arg_i, args[arg_i]);
                 } else if (Util.arg_is_vala_file (arg_value)) {
                     var file_from_arg = File.new_for_path (Util.realpath (arg_value, output_dir));
                     if (output_dir_file.get_relative_path (file_from_arg) != null)
@@ -236,7 +236,7 @@ class Vls.Compilation : BuildTarget {
         }
 
         if (ignored_args > 0)
-            debug ("Compilation(%s): ignored %d arguments", id, ignored_args);
+            Vls.Log.debug ("compile", "Compilation(%s): ignored %d arguments", id, ignored_args);
 
         // Bug #293: if no --vapidir was provided, add default system VAPI paths
         // so that the DefaultProject can find system packages like Posix.
@@ -275,7 +275,7 @@ class Vls.Compilation : BuildTarget {
         foreach (string? output_file in target_output_files) {
             if (output_file != null) {
                 if (output.add (File.new_for_commandline_arg_and_cwd (output_file, output_dir)))
-                    debug ("Compilation(%s): also outputs %s", id, output_file);
+                    Vls.Log.debug ("compile", "Compilation(%s): also outputs %s", id, output_file);
             }
         }
 
@@ -286,7 +286,7 @@ class Vls.Compilation : BuildTarget {
             _packages.add ("glib-2.0");
             _packages.add ("gobject-2.0");
             if (_profile != Vala.Profile.GOBJECT)
-                warning ("Compilation(%s) no --profile argument given, assuming GOBJECT", id);
+                Vls.Log.warn ("compile", "Compilation(%s) no --profile argument given, assuming GOBJECT", id);
         }
     }
 
@@ -379,15 +379,15 @@ class Vls.Compilation : BuildTarget {
         Vala.CodeContext.push (code_context);
 
         if (_project_sources.is_empty) {
-            debug ("Compilation(%s): will load input sources for the first time", id);
+            Vls.Log.debug ("compile", "Compilation(%s): will load input sources for the first time", id);
             if (input.is_empty)
-                warning ("Compilation(%s): no input sources to load!", id);
+                Vls.Log.warn ("compile", "Compilation(%s): no input sources to load!", id);
             foreach (File file in input) {
                 if (!dependencies.has_key (file)) {
                     try {
                         _project_sources[file] = new TextDocument (code_context, file, _sources_initial_content[file], true);
                     } catch (Error e) {
-                        warning ("Compilation(%s): %s", id, e.message);
+                        Vls.Log.warn ("compile", "Compilation(%s): %s", id, e.message);
                         Vala.CodeContext.pop ();
                         throw e;    // rethrow
                     }
@@ -416,7 +416,7 @@ class Vls.Compilation : BuildTarget {
     }
 
     private void compile () throws Error {
-        debug ("compiling %s ...", id);
+        Vls.Log.info ("compile", "compiling %s", id);
         Vala.CodeContext.push (code_context);
         var vala_parser = new Vala.Parser ();
         var genie_parser = new Vala.Genie.Parser ();
@@ -430,7 +430,7 @@ class Vls.Compilation : BuildTarget {
                     throw new FileError.NOENT ("file does not exist");
                 code_context.add_source_file (new TextDocument (code_context, generated_file));
             } catch (Error e) {
-                warning ("could not add file for %s: %s - %s", id, generated_file.get_uri (), e.message);
+                Vls.Log.warn ("compile", "could not add file for %s: %s - %s", id, generated_file.get_uri (), e.message);
 
                 Vala.CodeContext.pop ();
                 throw e;        // rethrow
@@ -458,10 +458,10 @@ class Vls.Compilation : BuildTarget {
         // corrupted symbols (e.g. from GIR package loading).  If any
         // are logged we mark the compilation so analyzers can skip it.
         var had_critical = false;
-        uint vala_log_handler = Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
+        uint vala_log_handler = GLib.Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
             (domain, levels, message) => { had_critical = true; });
         code_context.check ();
-        Log.remove_handler ("vala", vala_log_handler);
+        GLib.Log.remove_handler ("vala", vala_log_handler);
         if (had_critical)
             has_corrupted_symbols = true;
 
@@ -508,7 +508,7 @@ class Vls.Compilation : BuildTarget {
         _completed_first_compile = true;
         _packages_loaded = true;
         Vala.CodeContext.pop ();
-        debug ("finished compiling %s", id);
+        Vls.Log.info ("compile", "finished compiling %s", id);
     }
 
     /**
@@ -525,9 +525,9 @@ class Vls.Compilation : BuildTarget {
         }
         foreach (TextDocument doc in _project_sources.values) {
             if (doc.last_updated > last_updated) {
-                debug ("[SEMTOK] is_stale: stale due to %s (lu=%s > comp_lu=%s)",
-                       Util.project_path (doc.filename),
-                       Util.ts_to_string (doc.last_updated), Util.ts_to_string (last_updated));
+                Vls.Log.debug ("compile", "is_stale: stale due to %s (lu=%s > comp_lu=%s)",
+                               Util.project_path (doc.filename),
+                               Util.ts_to_string (doc.last_updated), Util.ts_to_string (last_updated));
                 return true;
             }
         }
@@ -553,15 +553,15 @@ class Vls.Compilation : BuildTarget {
 
         bool needs_rebuild = is_stale ();
         if (needs_rebuild) {
-            debug ("[SEMTOK] build_if_stale: recompiling");
+            Vls.Log.debug ("compile", "build_if_stale: recompiling");
             var compile_start = GLib.get_monotonic_time ();
             configure (cancellable);
             cancellable.set_error_if_cancelled ();
-            debug ("[SEMTOK] compile: starting");
+            Vls.Log.debug ("compile", "compile: starting");
             compile ();
             var compile_elapsed = GLib.get_monotonic_time () - compile_start;
-            debug ("[SEMTOK] compile: done in %.3fs",
-                   compile_elapsed / 1000000.0);
+            Vls.Log.info ("compile", "compile: done in %.3fs",
+                          compile_elapsed / 1000000.0);
         }
 
         // update all output files
@@ -630,8 +630,8 @@ class Vls.Compilation : BuildTarget {
                     throw new FileError.NOENT ("file does not exist");
                 worker_ctx.add_source_file (new TextDocument (worker_ctx, generated_file));
             } catch (Error e) {
-                warning ("compile_on_worker: could not add generated file for %s: %s - %s",
-                         id, generated_file.get_uri (), e.message);
+                Vls.Log.warn ("compile", "compile_on_worker: could not add generated file for %s: %s - %s",
+                              id, generated_file.get_uri (), e.message);
                 Vala.CodeContext.pop ();
                 throw e;
             }
@@ -660,8 +660,8 @@ class Vls.Compilation : BuildTarget {
         // type errors leave the AST structurally valid.
         if (worker_ctx.report.get_errors () > 0) {
             result.has_corrupted_symbols = true;
-            debug ("compile_on_worker: %s has parse errors (%d), marking corrupted",
-                   id, worker_ctx.report.get_errors ());
+            Vls.Log.debug ("compile", "compile_on_worker: %s has parse errors (%d), marking corrupted",
+                           id, worker_ctx.report.get_errors ());
         }
 
         // AST walks (inlay hints + templates) on worker
@@ -683,10 +683,10 @@ class Vls.Compilation : BuildTarget {
 
         // Type check
         var worker_had_critical = false;
-        uint worker_log_handler = Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
+        uint worker_log_handler = GLib.Log.set_handler ("vala", LogLevelFlags.LEVEL_CRITICAL,
             (domain, levels, message) => { worker_had_critical = true; });
         worker_ctx.check ();
-        Log.remove_handler ("vala", worker_log_handler);
+        GLib.Log.remove_handler ("vala", worker_log_handler);
         if (worker_had_critical)
             result.has_corrupted_symbols = true;
         if (cancellable != null)
@@ -712,7 +712,7 @@ class Vls.Compilation : BuildTarget {
      */
     public bool swap_compile_result (CompileResult result) {
         if (result.has_corrupted_symbols) {
-            debug ("swap_compile_result: %s has corrupted symbols, rejecting swap", id);
+            Vls.Log.debug ("compile", "swap_compile_result: %s has corrupted symbols, rejecting swap", id);
             has_corrupted_symbols = true;
             last_updated = result.last_updated;
             _completed_first_compile = true;
@@ -802,6 +802,7 @@ class Vls.Compilation : BuildTarget {
         // Update TextDocument contexts to point to the new code_context
         foreach (var entry in _project_sources)
             entry.value.context = code_context;
+        Vls.Log.debug ("compile", "swap accepted: %s, files=%d", id, (int) _project_sources.size);
         return true;
     }
 

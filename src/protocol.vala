@@ -828,7 +828,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
             if (property_name == "arguments") {
                 value = Value (typeof (Array));
                 if (property_node.get_node_type () != Json.NodeType.ARRAY) {
-                    warning ("unexpected property node type for 'arguments' %s",
+                    Vls.Log.warn ("lsp", "unexpected property node type for 'arguments' %s",
                              property_node.get_node_type ().to_string ());
                     return false;
                 }
@@ -839,7 +839,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
                     try {
                         arguments.append_val (Json.gvariant_deserialize (element, null));
                     } catch (Error e) {
-                        warning ("argument %u to command could not be deserialized: %s", index, e.message);
+                        Vls.Log.warn ("lsp", "argument %u to command could not be deserialized: %s", index, e.message);
                     }
                 });
 
@@ -849,7 +849,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
                 // workaround for json-glib < 1.5.2 (Ubuntu 20.04 / eOS 6)
                 if (property_node.get_value_type () != typeof (string)) {
                     value = "";
-                    warning ("unexpected property node type for 'commands' %s",
+                    Vls.Log.warn ("lsp", "unexpected property node type for 'commands' %s",
                              property_node.get_node_type ().to_string ());
                     return false;
                 }
@@ -934,7 +934,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
                 try {
                     diags.add (Vls.Util.parse_variant<Diagnostic> (Json.gvariant_deserialize (element, null)));
                 } catch (Error e) {
-                    warning ("argument %u could not be deserialized: %s", index, e.message);
+                    Vls.Log.warn ("lsp", "argument %u could not be deserialized: %s", index, e.message);
                 }
             });
             value = diags;
@@ -1166,7 +1166,7 @@ public override Json.Node serialize_property (string property_name, GLib.Value v
                 this.kind = SymbolKind.TypeParameter;
             else {
                 this.kind = SymbolKind.Module;
-                warning ("unexpected symbol kind in type hierarchy: `%s'", symbol.type_name);
+                Vls.Log.warn ("lsp", "unexpected symbol kind in type hierarchy: `%s'", symbol.type_name);
             }
 
             var version = symbol.get_attribute ("Version");
