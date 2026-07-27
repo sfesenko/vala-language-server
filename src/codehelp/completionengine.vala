@@ -141,14 +141,15 @@ namespace Vls.CompletionEngine {
                         return;
                     }
 
-                    Vala.CodeContext.push (compilation.code_context);
+                    // show_members_with_updated_context() uses
+                    // Server.with_code_context() internally — the outer push/pop
+                    // was redundant and unbalanced if the body threw.
                     show_members_with_updated_context (lang_serv, project,
                                                        client, id,
                                                        doc, compilation,
                                                        is_null_safe_access, is_pointer_access,
                                                        pos, end_pos, completions);
                     finish (ctx.server, client, id, completions);
-                    Vala.CodeContext.pop ();
                 }, compilation);
             } else {
                 finish (ctx.server, client, id, completions);
@@ -170,12 +171,14 @@ namespace Vls.CompletionEngine {
                               false, false, false, nearest_with_expression, best_scope, completions);
             }
             if (nearest_symbol is Vala.Class) {
-                var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols ((Vala.Class) nearest_symbol);
-                // TODO: use missing prereqs (results.first)
-                list_implementable_symbols (lang_serv, project, compilation, doc,
-                                            (Vala.Class) nearest_symbol, best_scope,
-                                            results.second, completions, prefix);
-                showing_override_suggestions = !completions.is_empty;
+                if (!compilation.has_corrupted_symbols) {
+                    var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols ((Vala.Class) nearest_symbol);
+                    // TODO: use missing prereqs (results.first)
+                    list_implementable_symbols (lang_serv, project, compilation, doc,
+                                                (Vala.Class) nearest_symbol, best_scope,
+                                                results.second, completions, prefix);
+                    showing_override_suggestions = !completions.is_empty;
+                }
             } else if (nearest_symbol is Vala.Method) {
                 // Bug #334: when cursor is at class level but scope resolves
                 // to a method, walk up to find the enclosing class for override
@@ -185,11 +188,13 @@ namespace Vls.CompletionEngine {
                     enclosing = enclosing.parent_symbol;
                 if (enclosing != null) {
                     var cl = (Vala.Class) enclosing;
-                    var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols (cl);
-                    list_implementable_symbols (lang_serv, project, compilation, doc,
-                                                cl, best_scope,
-                                                results.second, completions, prefix);
-                    showing_override_suggestions = !completions.is_empty;
+                    if (!compilation.has_corrupted_symbols) {
+                        var results = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols (cl);
+                        list_implementable_symbols (lang_serv, project, compilation, doc,
+                                                    cl, best_scope,
+                                                    results.second, completions, prefix);
+                        showing_override_suggestions = !completions.is_empty;
+                    }
                 }
                 // Also check for virtual methods not overridden (ObjectTypeSymbol)
                 if (enclosing is Vala.ObjectTypeSymbol) {

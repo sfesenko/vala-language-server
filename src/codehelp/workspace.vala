@@ -36,18 +36,18 @@ namespace Vls.Workspace {
             all_projects += ctx.services.default_project;
             foreach (var project in all_projects) {
                 project.for_each_project_source_file ((text_document, compilation) => {
-                    Vala.CodeContext.push (compilation.code_context);
-                    var symbol_enumerator = compilation.get_analysis_for_file<SymbolEnumerator> (text_document);
-                    if (symbol_enumerator != null) {
-                        symbol_enumerator
-                            .flattened ()
-                            .filter (dsym => query.match_string (dsym.name, true))
-                            .foreach (dsym => {
-                                json_array.add_element (Json.gobject_serialize (dsym));
-                                return true;
-                            });
-                    }
-                    Vala.CodeContext.pop ();
+                    Server.with_code_context (compilation.code_context, () => {
+                        var symbol_enumerator = compilation.get_analysis_for_file<SymbolEnumerator> (text_document);
+                        if (symbol_enumerator != null) {
+                            symbol_enumerator
+                                .flattened ()
+                                .filter (dsym => query.match_string (dsym.name, true))
+                                .foreach (dsym => {
+                                    json_array.add_element (Json.gobject_serialize (dsym));
+                                    return true;
+                                });
+                        }
+                    });
                 });
             }
 

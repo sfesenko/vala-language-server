@@ -44,6 +44,11 @@ namespace Vls.Rename {
                 reply_null ();
                 return;
             }
+            if (symbol.source_reference == null) {
+                Logger.debug ("lsp", "symbol %s has no source reference", symbol.get_full_name ());
+                reply_null ();
+                return;
+            }
 
             Logger.debug ("lsp", "got symbol %s @ %s", symbol.get_full_name (), symbol.source_reference.to_string ());
 

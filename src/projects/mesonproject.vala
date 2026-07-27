@@ -117,6 +117,11 @@ class Vls.MesonProject : Project {
         target_builder.augment_from_compile_commands (cancellable);
         build_targets.clear ();
         build_targets.add_all (target_builder.build_targets);
+        // Backfill owner for each Compilation that came from the target builder.
+        foreach (var bt in build_targets) {
+            if (bt is Compilation)
+                ((Compilation) bt).owner = this;
+        }
 
         // 5. look for more file monitors
         var bs_files_parser = new Json.Parser.immutable_new ();

@@ -69,19 +69,19 @@ namespace Vls.SignatureHelpEngine {
                     return;
                 }
 
-                Vala.CodeContext.push (compilation.code_context);
-                show_help_with_updated_context (lang_serv, project,
-                                                method,
-                                                doc, compilation, pos,
-                                                signatures, ref active_param);
+                Server.with_code_context (compilation.code_context, () => {
+                    show_help_with_updated_context (lang_serv, project,
+                                                    method,
+                                                    doc, compilation, pos,
+                                                    signatures, ref active_param);
 
-                if (!signatures.is_empty) {
-                    finish (lang_serv.server, client, id, signatures, active_param);
-                } else {
-                    Server.cleanup_request (lang_serv.server, id);
-                    Server.reply_null (id, client, method);
-                }
-                Vala.CodeContext.pop ();
+                    if (!signatures.is_empty) {
+                        finish (lang_serv.server, client, id, signatures, active_param);
+                    } else {
+                        Server.cleanup_request (lang_serv.server, id);
+                        Server.reply_null (id, client, method);
+                    }
+                });
             }, compilation);
         } else {
             finish (lang_serv.server, client, id, signatures, active_param);

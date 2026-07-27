@@ -59,6 +59,8 @@ namespace Vls.SymbolReferences {
                 if (matching_sym == null && (gir_name = current_sym.get_attribute_string ("GIR", "name")) != null) {
                     matching_sym = symtab[gir_name];
                     if (matching_sym != null
+                        && matching_sym.source_reference != null
+                        && matching_sym.source_reference.file != null
                         && matching_sym.source_reference.file.file_type != Vala.SourceFileType.PACKAGE)
                         matching_sym = null;
                 }
@@ -483,7 +485,8 @@ namespace Vls.SymbolReferences {
                         references[result.second] = member_name ?? node;
                 }
             } else if (include_invisible && node is Vala.Expression
-                       && ((Vala.Expression)node).symbol_reference == symbol) {
+                       && ((Vala.Expression)node).symbol_reference == symbol
+                       && node.source_reference != null) {
                 references[new Range.from_sourceref (node.source_reference)] = node;
             }
 
@@ -555,6 +558,8 @@ namespace Vls.SymbolReferences {
         // find_matching_symbol() isn't reliable with local variables, especially those declared
         // in lambdas, which can change names after recompilation.
         if (compilations.is_empty && (symbol is Vala.LocalVariable || symbol is Vala.Parameter)) {
+            if (symbol.source_reference == null)
+                return compilations;
             project.get_compilations ()
                 .filter (c => symbol.source_reference.file in c.code_context.get_source_files ())
                 .foreach (compilation => {

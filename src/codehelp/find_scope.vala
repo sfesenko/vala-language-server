@@ -37,9 +37,13 @@ class Vls.FindScope : Vala.CodeVisitor {
     }
 
     public FindScope (Vala.SourceFile file, Position pos, bool before_context_update = true) {
-        if (Vala.CodeContext.get () != file.context)
-            Vala.CodeContext.push (file.context);
-        // debug ("FindScope @ %s", pos.to_string ());
+        // Precondition: caller has already pushed the appropriate
+        // Vala.CodeContext via Server.with_code_context(). libvala assumes a
+        // current context for scope lookup during visit, so a missing push
+        // manifests as a libvala CRITICAL (often a NULL deref) deep in the
+        // visit walk. Server.with_code_context() wraps the call site and
+        // balances the push with a try/finally pop, so this constructor can
+        // stay context-free.
         this.context = file.context;
         this.file = file;
         this.pos = pos;

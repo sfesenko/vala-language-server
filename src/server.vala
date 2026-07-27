@@ -357,6 +357,13 @@ class Vls.Server : Jsonrpc.Server {
             custom_gir_dirs.add_all (project.get_custom_gir_dirs ());
         }
         doc_engine = new DocumentationEngine (new GirDocumentation (packages, custom_gir_dirs));
+        // Wire the doc cache clear handler so each Compilation clears the
+        // (pointer-keyed) documentation cache after a successful swap.
+        // Without this, dangling symbol pointers accumulate and may collide
+        // with newly-allocated symbols.
+        foreach (var project in new_projects)
+            project.set_doc_engine (doc_engine);
+        project_manager.default_project.set_doc_engine (doc_engine);
 
         // listen for context update requests
         context_manager.request_context_update (client);
@@ -1678,6 +1685,10 @@ int main (string[] args) {
         stderr.printf ("--- end backtrace ---\n");
         Posix.exit (1);
     });
+    // Ignore SIGPIPE — the editor may close stdin/stdout while VLS is still
+    // writing. Without this, write() returns EPIPE and the kernel delivers
+    // SIGPIPE before GLib can observe client_closed, killing the process.
+    Posix.@signal (Posix.Signal.PIPE, Posix.SIG_IGN);
 
     stderr.printf ("=== VLS starting ===\n");
     Vls.Logger.init ();

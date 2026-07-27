@@ -133,30 +133,28 @@ namespace Vls.CompletionEngine {
                                             Position pos, Position? end_pos, Set<CompletionItem> completions) {
         string method = "textDocument/completion";
         // debug (@"[$method] FindSymbol @ $pos" + (end_pos != null ? @" -> $end_pos" : ""));
-        Vala.CodeContext.push (compilation.code_context);
+        Server.with_code_context (compilation.code_context, () => {
+            var fs = new NodeSearch (doc, pos, true, end_pos);
 
-        var fs = new NodeSearch (doc, pos, true, end_pos);
+            if (fs.result.size == 0) {
+                Logger.debug ("lsp", "no results found for member access");
+                Server.cleanup_request (lang_serv.server, id);
+                Server.reply_null (id, client, method);
+                return;
+            }
 
-        if (fs.result.size == 0) {
-            Logger.debug ("lsp", "no results found for member access");
-            Server.cleanup_request (lang_serv.server, id);
-            Server.reply_null (id, client, method);
-            Vala.CodeContext.pop ();
-            return;
-        }
+            bool in_oce = false;
 
-        bool in_oce = false;
+            foreach (var res in fs.result) {
+                // debug (@"[$method] found $(res.type_name) (semanalyzed = $(res.checked))");
+                in_oce |= res is Vala.ObjectCreationExpression;
+            }
 
-        foreach (var res in fs.result) {
-            // debug (@"[$method] found $(res.type_name) (semanalyzed = $(res.checked))");
-            in_oce |= res is Vala.ObjectCreationExpression;
-        }
-
-        Vala.CodeNode result = Server.get_best (fs, doc);
-        show_members (lang_serv, project, doc, compilation,
-                      is_null_safe_access, is_pointer_access, in_oce,
-                      result, null, completions);
-        Vala.CodeContext.pop ();
+            Vala.CodeNode result = Server.get_best (fs, doc);
+            show_members (lang_serv, project, doc, compilation,
+                          is_null_safe_access, is_pointer_access, in_oce,
+                          result, null, completions);
+        });
     }
 
     /**

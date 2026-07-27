@@ -68,10 +68,13 @@ class Vls.CcProject : Project {
                 continue;
             }
 
-            if (cc.command[0].contains ("valac"))
-                build_targets.add (new Compilation (file_cache, analysis_cache, cc.directory, cc.file ?? @"CC#$i", @"CC#$i", i,
-                                                    cc.command[0:1], cc.command[1:cc.command.length],
-                                                    new string[]{}, new string[]{}, new string[]{}));
+            if (cc.command[0].contains ("valac")) {
+                var btarget = new Compilation (file_cache, analysis_cache, cc.directory, cc.file ?? @"CC#$i", @"CC#$i", i,
+                                               cc.command[0:1], cc.command[1:cc.command.length],
+                                               new string[]{}, new string[]{}, new string[]{});
+                btarget.owner = this;
+                build_targets.add (btarget);
+            }
             else
                 build_targets.add (new BuildTask (file_cache, cc.directory, cc.directory, cc.file ?? @"CC#$i", @"CC#$i", i,
                                                   cc.command[0:1], cc.command[1:cc.command.length],

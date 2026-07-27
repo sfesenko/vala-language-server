@@ -54,6 +54,8 @@ namespace Vls.CodeActions {
                     code_actions.add (new BaseConverterAction (lit, document));
             } else if (code_node is Class) {
                 var csym = (Class)code_node;
+                if (compilation.has_corrupted_symbols)
+                    continue;
                 var clsdef_range = compute_class_def_range (csym, class_ranges);
                 var missing = CodeHelp.gather_missing_prereqs_and_unimplemented_symbols (csym);
                 if (!missing.first.is_empty || !missing.second.is_empty) {

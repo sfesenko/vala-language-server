@@ -86,6 +86,7 @@ class Vls.DefaultProject : Project {
         var btarget = new Compilation (file_cache, analysis_cache, root_path, uri, uri, build_targets.size,
                                        {"valac"}, args, {uri}, {}, {},
                                        content != null ? new string[]{content} : null);
+        btarget.owner = this;
         // build it now so that information is available immediately on
         // file open (other projects compile on LSP initialize(), so they don't
         // need to do this)

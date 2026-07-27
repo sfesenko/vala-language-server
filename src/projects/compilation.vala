@@ -54,6 +54,13 @@ class Vls.Compilation : BuildTarget {
      */
     private AnalysisCache _analysis_cache;
 
+    /**
+     * The {@link Project} that owns this Compilation, or null for tests.
+     * Set by the project after construction; used to notify the project
+     * (and indirectly the documentation cache) after a successful swap.
+     */
+    public Project? owner { get; set; default = null; }
+
     public Vala.CodeContext code_context { get; private set; default = new Vala.CodeContext (); }
 
     // CodeContext arguments:
@@ -727,6 +734,20 @@ class Vls.Compilation : BuildTarget {
         // Schedule clear on idle — runs after ALL pending main-loop events
         // (i.e. all in-flight handlers) have completed.
         Idle.add (() => { _previous_code_context = null; return Source.REMOVE; });
+        // Old symbol pointers are about to be invalidated. Notify the owner
+        // so it can clear caches that key on pointer identity (e.g. the
+        // documentation cache). Without this, dangling pointer entries
+        // accumulate and may match newly-allocated symbols.
+        if (owner != null) {
+            owner.on_doc_cache_clear ();
+        }
+        // The new code_context is clean (we only reach here when
+        // result.has_corrupted_symbols == false), so re-enable any features
+        // that were gated off by a previous corrupted compile. Without this,
+        // override-suggestion completions and class code actions would stay
+        // disabled for the lifetime of the Compilation after a single
+        // transient parse error.
+        has_corrupted_symbols = false;
 
         // Rebuild _project_sources from the swapped-in code_context so that
         // the next edit/compile cycle sees the same TextDocument objects.

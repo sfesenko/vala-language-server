@@ -37,22 +37,22 @@ namespace Vls.TypeHierarchy {
                     continue;
 
                 var compilation_type_symbol = SymbolReferences.find_matching_symbol (pair.first.code_context, symbol);
-                Vala.CodeContext.push (pair.first.code_context);
-                var result = new NodeSearch.with_filter (
-                    source_file,
-                    compilation_type_symbol,
-                    (needle, node) => {
-                        if (needle is ObjectTypeSymbol && node is ObjectTypeSymbol)
-                            return node != needle && ((ObjectTypeSymbol)node).is_subtype_of ((ObjectTypeSymbol)needle);
-                        if (needle is Struct && node is Struct)
-                            return ((Struct)node).base_struct == (Struct)needle;
-                        return false;
-                    },
-                    true
-                ).result;
-                foreach (var node in result)
-                    subtypes += new TypeHierarchyItem.from_symbol ((Vala.TypeSymbol)node);
-                Vala.CodeContext.pop ();
+                Server.with_code_context (pair.first.code_context, () => {
+                    var result = new NodeSearch.with_filter (
+                        source_file,
+                        compilation_type_symbol,
+                        (needle, node) => {
+                            if (needle is ObjectTypeSymbol && node is ObjectTypeSymbol)
+                                return node != needle && ((ObjectTypeSymbol)node).is_subtype_of ((ObjectTypeSymbol)needle);
+                            if (needle is Struct && node is Struct)
+                                return ((Struct)node).base_struct == (Struct)needle;
+                            return false;
+                        },
+                        true
+                    ).result;
+                    foreach (var node in result)
+                        subtypes += new TypeHierarchyItem.from_symbol ((Vala.TypeSymbol)node);
+                });
 
                 shown_files.add (gfile);
             }

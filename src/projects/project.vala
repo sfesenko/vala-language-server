@@ -45,6 +45,24 @@ abstract class Vls.Project : Object {
     protected FileCache file_cache;
     public AnalysisCache analysis_cache { get; private set; }
 
+    /**
+     * Notifier for the documentation cache. {@link Compilation} calls this
+     * on every successful {@link Compilation.swap_compile_result} so the
+     * doc cache (which keys on {@link Vala.Symbol} pointer identity) is
+     * cleared before old pointers are invalidated. Set by the server after
+     * the documentation engine is ready.
+     */
+    public void on_doc_cache_clear () {
+        if (doc_engine != null)
+            doc_engine.clear_cache ();
+    }
+
+    private DocumentationEngine doc_engine;
+
+    public void set_doc_engine (DocumentationEngine engine) {
+        doc_engine = engine;
+    }
+
     protected Project (string root_path, FileCache file_cache) {
         this.root_path = root_path;
         this.file_cache = file_cache;
