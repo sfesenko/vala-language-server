@@ -137,7 +137,7 @@ namespace Vls.CompletionEngine {
                 add_completions_for_ns (lang_serv, project, code_style,
                                         (Vala.Namespace) owner, best_scope, completions, in_oce);
             } else {
-                Vls.Log.debug ("lsp", @"ignoring owner ($owner) ($(owner.type_name)) of scope");
+                Logger.debug ("lsp", @"ignoring owner ($owner) ($(owner.type_name)) of scope");
             }
         }
         // show members of all imported namespaces
@@ -295,7 +295,7 @@ namespace Vls.CompletionEngine {
                 insert_text.append (return_type_representation);
                 insert_text.append_c (' ');
             } else {
-                Vls.Log.warn ("lsp", "no return type for symbol %s", sym.name);
+                Logger.warn ("lsp", "no return type for symbol %s", sym.name);
             }
 
             label.append (sym.name);

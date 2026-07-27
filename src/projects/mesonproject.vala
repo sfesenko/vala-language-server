@@ -34,6 +34,7 @@ class Vls.MesonProject : Project {
             return false;
         }
 
+        var reconfigure_start = GLib.get_monotonic_time ();
         build_targets.clear ();
         build_files_have_changed = false;
 
@@ -43,8 +44,8 @@ class Vls.MesonProject : Project {
         // 1. configure new build directory
         var root_meson_build = File.new_build_filename (root_path, "meson.build");
         if (!meson_build_files.has_key (root_meson_build)) {
-            Vls.Log.debug ("compile", "obtaining a new file monitor for %s",
-                           Util.project_path (root_meson_build.get_path ()));
+            Logger.debug ("compile", "obtaining a new file monitor for %s",
+                           root_meson_build.get_path ());
             FileMonitor file_monitor = root_meson_build.monitor_file (FileMonitorFlags.NONE, cancellable);
             file_monitor.changed.connect (file_changed_event);
             meson_build_files[root_meson_build] = file_monitor;
@@ -54,7 +55,7 @@ class Vls.MesonProject : Project {
         string proc_stdout = "";
         string proc_stderr = "";
         int proc_status = -1;
-        Vls.Log.info ("compile", "%sconfiguring build dir %s", configured_once ? "re" : "", build_dir);
+        Logger.info ("compile", "%sconfiguring build dir %s", configured_once ? "re" : "", build_dir);
         if (configured_once)
             spawn_args += "--reconfigure";
 
@@ -71,7 +72,7 @@ class Vls.MesonProject : Project {
         });
 
         if (proc_status != 0) {
-            Vls.Log.warn ("compile", "configuration failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
+            Logger.warn ("compile", "configuration failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
                           proc_status, proc_stdout, proc_stderr);
             throw new ProjectError.CONFIGURATION (@"meson configuration failed with exit code $proc_status");
         }
@@ -82,9 +83,9 @@ class Vls.MesonProject : Project {
         MesonIntrospection.load_introspection_json (dependencies_parser, build_dir, "dependencies", _scheduler, cancellable);
         Json.Node? rd_json_root = dependencies_parser.get_root ();
         if (rd_json_root == null) {
-            Vls.Log.warn ("compile", "JSON root is null! C code targets may fail to build.");
+            Logger.warn ("compile", "JSON root is null! C code targets may fail to build.");
         } else if (rd_json_root.get_node_type () != Json.NodeType.ARRAY) {
-            Vls.Log.warn ("compile", "JSON root is not an array! C code targets may fail to build.");
+            Logger.warn ("compile", "JSON root is not an array! C code targets may fail to build.");
         } else {
             int elem_idx = -1;
             foreach (Json.Node elem_node in rd_json_root.get_array ().get_elements ()) {
@@ -92,7 +93,7 @@ class Vls.MesonProject : Project {
                 var raw_dependency = Json.gobject_deserialize
                     (typeof (Meson.Dependency), elem_node) as Meson.Dependency?;
                 if (raw_dependency == null) {
-                    Vls.Log.warn ("compile", "could not deserialize raw dependency/element #%d", elem_idx);
+                    Logger.warn ("compile", "could not deserialize raw dependency/element #%d", elem_idx);
                     continue;
                 }
                 raw_dependencies.add (raw_dependency);
@@ -104,10 +105,10 @@ class Vls.MesonProject : Project {
         MesonIntrospection.load_introspection_json(targets_parser, build_dir, "targets", _scheduler, cancellable);
         Json.Node? tg_json_root = targets_parser.get_root ();
         if (tg_json_root == null) {
-            Vls.Log.warn ("compile", "JSON root is null! Bailing out");
+            Logger.warn ("compile", "JSON root is null! Bailing out");
             throw new ProjectError.INTROSPECTION ("Meson targets: JSON root is null!");
         } else if (tg_json_root.get_node_type () != Json.NodeType.ARRAY) {
-            Vls.Log.warn ("compile", "JSON root is not an array! Bailing out");
+            Logger.warn ("compile", "JSON root is not an array! Bailing out");
             throw new ProjectError.INTROSPECTION ("Meson targets: JSON root is not an array!");
         }
         var target_builder = new MesonTargetBuilder (build_dir, root_path, file_cache, analysis_cache);
@@ -133,21 +134,21 @@ class Vls.MesonProject : Project {
                 if (path != null && (path.has_suffix ("meson.build") || path.has_suffix ("meson_options.txt") || path.has_suffix ("meson.options"))) {
                     var build_file = File.new_for_path ((!) path);
                     if (!meson_build_files.has_key (build_file)) {
-                        Vls.Log.debug ("compile", "obtaining a new file monitor for %s",
-                                       Util.project_path (build_file.get_path ()));
+                        Logger.debug ("compile", "obtaining a new file monitor for %s",
+                                       build_file.get_path ());
                         try {
                             FileMonitor file_monitor = build_file.monitor_file (FileMonitorFlags.NONE, cancellable);
                             file_monitor.changed.connect (file_changed_event);
                             meson_build_files[build_file] = file_monitor;
                         } catch (Error e) {
-                            Vls.Log.warn ("compile", "failed to monitor build file %s - %s",
-                                          Util.project_path (build_file.get_path ()), e.message);
+                            Logger.warn ("compile", "failed to monitor build file %s - %s",
+                                          build_file.get_path (), e.message);
                         }
                     }
                 }
             }
         } catch (Error e) {
-            Vls.Log.warn ("compile", "failed to load meson buildsystem files: %s", e.message);
+            Logger.warn ("compile", "failed to load meson buildsystem files: %s", e.message);
         }
 
         // 6. perform final analysis and sanity checking
@@ -157,27 +158,29 @@ class Vls.MesonProject : Project {
             var dest = new HashMap<BuildTarget, File> ();
             target_builder.update_dependencies_for_targets_executing_generated_programs (dest);
             foreach (var entry in dest) {
-                Vls.Log.debug ("compile", "requires general build because target %s executes a file (%s) generated by another target %s",
+                Logger.debug ("compile", "requires general build because target %s executes a file (%s) generated by another target %s",
                                entry.key.id, entry.value.get_path (), entry.key.dependencies[entry.value].id);
             }
         }
 
         configured_once = true;
 
+        var reconfigure_elapsed = GLib.get_monotonic_time () - reconfigure_start;
+        Logger.debug ("compile", "reconfigure completed in %.3fs", reconfigure_elapsed / 1000000.0);
         return true;
     }
 
     private void on_target_defined_in_file (string defined_in) {
         var defined_in_file = File.new_for_path (defined_in);
         if (!meson_build_files.has_key (defined_in_file)) {
-            Vls.Log.debug ("compile", "obtaining a new file monitor for %s",
-                           Util.project_path (defined_in_file.get_path ()));
+            Logger.debug ("compile", "obtaining a new file monitor for %s",
+                           defined_in_file.get_path ());
             try {
                 FileMonitor file_monitor = defined_in_file.monitor_file (FileMonitorFlags.NONE);
                 file_monitor.changed.connect (file_changed_event);
                 meson_build_files[defined_in_file] = file_monitor;
             } catch (Error e) {
-                Vls.Log.warn ("compile", "failed to monitor %s - %s", defined_in, e.message);
+                Logger.warn ("compile", "failed to monitor %s - %s", defined_in, e.message);
             }
         }
     }
@@ -203,7 +206,7 @@ class Vls.MesonProject : Project {
             }, cancellable);
 
             if (proc_status != 0) {
-                Vls.Log.warn ("compile", "`meson compile' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
+                Logger.warn ("compile", "`meson compile' in %s failed with exit code %d\n----stdout:\n%s\n----stderr:\n%s",
                               build_dir, proc_status, proc_stdout, proc_stderr);
                 throw new ProjectError.INTROSPECTION (@"`meson compile' failed with exit code $proc_status");
             }
@@ -225,7 +228,7 @@ class Vls.MesonProject : Project {
 
     private void file_changed_event (File src, File? dest, FileMonitorEvent event_type) {
         if (FileMonitorEvent.DELETED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s was deleted", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s was deleted", src.get_path ());
             // remove this file monitor since the file was deleted
             FileMonitor file_monitor;
             if (meson_build_files.unset (src, out file_monitor)) {
@@ -235,11 +238,11 @@ class Vls.MesonProject : Project {
             build_files_have_changed = true;
             changed ();
         } else if (FileMonitorEvent.CHANGED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s was changed", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s was changed", src.get_path ());
             build_files_have_changed = true;
             changed ();
         } else if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s had an attribute changed", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s had an attribute changed", src.get_path ());
             build_files_have_changed = true;
             changed ();
         }

@@ -33,8 +33,8 @@ class Vls.RequestRouter : Object {
 
     public bool handle_call (Jsonrpc.Client client, string method, Variant id, Variant parameters) {
         string req_id = new Request (id, method).to_string ();
-        Vls.Log.push_context (req_id);
-        Vls.Log.info (null, "→ entered");
+        Logger.push_context (req_id);
+        Logger.info (null, "→ entered");
 
         // Register per-request cancellable for fine-grained cancellation.
         _server.request_cancellables[new Request (id)] = new Cancellable ();
@@ -145,18 +145,19 @@ class Vls.RequestRouter : Object {
                 break;
 
             default:
-                Vls.Log.warn (null, "unhandled call `%s'", method);
+                Logger.warn (null, "unhandled call `%s'", method);
                 return false;
             }
-            Vls.Log.info (null, "← completed");
+            Logger.info (null, "← completed");
         } finally {
-            Vls.Log.pop_context ();
+            Logger.pop_context ();
         }
         return true;
     }
 
     public void notification (Jsonrpc.Client client, string method, Variant parameters) {
-        Vls.Log.push_context (method);
+        Logger.debug ("lsp", "notification %s", method);
+        Logger.push_context (method);
         try {
             switch (method) {
                 case "exit":
@@ -168,10 +169,11 @@ class Vls.RequestRouter : Object {
                     break;
 
                 case "$/setTrace":
+                    // Temporarily ignore to keep all logs visible
                     string? trace_value = null;
                     parameters.lookup ("value", "s", out trace_value);
-                    _server.trace = Lsp.TraceValue.parse (trace_value);
-                    Vls.Log.set_trace ((int) _server.trace);
+                    if (trace_value != null)
+                        _server.trace = Lsp.TraceValue.parse (trace_value);
                     break;
 
                 case "initialized":
@@ -194,11 +196,11 @@ class Vls.RequestRouter : Object {
                     break;
 
                 default:
-                    Vls.Log.warn (null, "unhandled notification `%s'", method);
+                    Logger.warn (null, "unhandled notification `%s'", method);
                     break;
             }
         } finally {
-            Vls.Log.pop_context ();
+            Logger.pop_context ();
         }
     }
 }

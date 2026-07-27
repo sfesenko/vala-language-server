@@ -108,7 +108,7 @@ class Vls.FileCache : Object {
         }
 
         if (file_exists && last_modified == 0)
-            Vls.Log.warn ("compile", "could not get last modified time of %s", file.get_uri ());
+            Logger.warn ("compile", "could not get last modified time of %s", file.get_uri ());
 
         if (status == null) {
             // the file is being entered into the cache for the first time

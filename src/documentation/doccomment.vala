@@ -177,7 +177,7 @@ class Vls.DocComment {
                 result.append_c ('\n');
                 result.append (columns_regex.replace (rest, rest.length, 0, "|\\1"));
             } catch (RegexError e) {
-                Vls.Log.warn ("lsp", "failed to render ValaDoc table - %s", e.message);
+                Logger.warn ("lsp", "failed to render ValaDoc table - %s", e.message);
                 result.append ("\n\n(failed to render ValaDoc table)\n\n");
             }
 
@@ -205,7 +205,7 @@ class Vls.DocComment {
                     try {
                         parent_comment = new DocComment.from_valadoc_comment (symbol.parent_symbol.comment, symbol.parent_symbol, compilation);
                     } catch (RegexError e) {
-                        Vls.Log.warn ("lsp", "could not render parent comment - %s", e.message);
+                        Logger.warn ("lsp", "could not render parent comment - %s", e.message);
                         result.append ("(could not render parent comment - ");
                         result.append (e.message);
                         result.append_c (')');

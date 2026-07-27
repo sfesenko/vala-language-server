@@ -96,7 +96,7 @@ class Vls.TextDocument : SourceFile {
             ftype = SourceFileType.SOURCE;
         else {
             ftype = SourceFileType.NONE;
-            Vls.Log.warn ("compile", "file %s is neither a package nor a source file", uri);
+            Logger.warn ("compile", "file %s is neither a package nor a source file", uri);
         }
         // prefer paths to URIs, unless we don't have a path
         // (this happens when we have just opened a new file in some editors)

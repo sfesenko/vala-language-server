@@ -44,7 +44,7 @@ namespace Vls.MesonSubstitutions {
                         substitute += input_arg;
                     }
 
-                    Vls.Log.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
+                    Logger.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
                            meson_target_info.id, i, args[i], substitute);
                 } else if (special_arg_name == "OUTPUT") {
                     string substitute = "";
@@ -55,19 +55,19 @@ namespace Vls.MesonSubstitutions {
                         substitute += output_arg;
                     }
 
-                    Vls.Log.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
+                    Logger.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
                            meson_target_info.id, i, args[i], substitute);
                 } else if (special_arg_name == "OUTDIR") {
                     string substitute;
                     if (src_relative_path == null) {
-                        Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg with null source relative dir",
+                        Logger.warn ("compile", "for target %s, source #0, could not substitute special arg with null source relative dir",
                                  meson_target_info.id);
                         substitute = build_dir;
                     } else {
                         substitute = Path.build_filename (build_dir, src_relative_path);
                     }
                     substituted_args.add (substitute);
-                    Vls.Log.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
+                    Logger.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
                            meson_target_info.id, i, args[i], substitute);
                 } else if (special_arg_name == "CURRENT_SOURCE_DIR") {
                     // use the defined-in directory
@@ -75,10 +75,10 @@ namespace Vls.MesonSubstitutions {
                 } else if (special_arg_name == "PRIVATE_DIR") {
                     string substitute = meson_target_info.filename[0] + ".p";
                     substituted_args.add (substitute);
-                    Vls.Log.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
+                    Logger.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
                            meson_target_info.id, i, args[i], substitute);
                 } else {
-                    Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
+                    Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
                              meson_target_info.id, special_arg_name);
                     substituted_args.add (match_info.fetch (0));
                 }
@@ -98,7 +98,7 @@ namespace Vls.MesonSubstitutions {
                         if (found != null) {
                             result.append (found.output_dir);
                         } else {
-                            Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' (could not find build target with ID %s)",
+                            Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' (could not find build target with ID %s)",
                                      meson_target_info.id, match.get_string (), build_id);
                         }
                     }
@@ -124,7 +124,7 @@ namespace Vls.MesonSubstitutions {
                                 result.append (target_source.sources[arg_num]);
                                 replaced = true;
                             } else {
-                                Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
+                                Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
                                          meson_target_info.id, match.fetch (0));
                                 result.append (match.fetch (0));
                                 return true;
@@ -134,7 +134,7 @@ namespace Vls.MesonSubstitutions {
                                 result.append (target_source.sources[0]);
                                 replaced = true;
                             } else {
-                                Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' with multiple sources",
+                                Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' with multiple sources",
                                          meson_target_info.id, match.fetch (0));
                                 result.append (match.fetch (0));
                                 return true;
@@ -146,7 +146,7 @@ namespace Vls.MesonSubstitutions {
                                 result.append (meson_target_info.filename[arg_num]);
                                 replaced = true;
                             } else {
-                                Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
+                                Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
                                          meson_target_info.id, match.fetch (0));
                                 result.append (match.fetch (0));
                                 return true;
@@ -156,7 +156,7 @@ namespace Vls.MesonSubstitutions {
                                 result.append (meson_target_info.filename[0]);
                                 replaced = true;
                             } else {
-                                Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' with multiple sources",
+                                Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s' with multiple sources",
                                          meson_target_info.id, match.fetch (0));
                                 result.append (match.fetch (0));
                                 return true;
@@ -164,7 +164,7 @@ namespace Vls.MesonSubstitutions {
                         }
                     } else if (special_arg_name == "OUTDIR") {
                         if (src_relative_path == null) {
-                            Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg with null source relative dir",
+                            Logger.warn ("compile", "for target %s, source #0, could not substitute special arg with null source relative dir",
                                      meson_target_info.id);
                             result.append (match.fetch (0));
                             return true;
@@ -175,7 +175,7 @@ namespace Vls.MesonSubstitutions {
                         result.append (Path.get_dirname (meson_target_info.defined_in));
                         replaced = true;
                     } else {
-                                Vls.Log.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
+                                Logger.warn ("compile", "for target %s, source #0, could not substitute special arg `%s'",
                                          meson_target_info.id, match.fetch (0));
                         result.append (match.fetch (0));
                         return true;
@@ -183,7 +183,7 @@ namespace Vls.MesonSubstitutions {
                     return false;
                 });
                 if (replaced) {
-                    Vls.Log.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
+                    Logger.debug ("compile", "for target %s, source #0, subtituted arg #%d (%s) with %s",
                     meson_target_info.id, i, args[i], substitute);
                 }
                 substituted_args.add (substitute);

@@ -67,7 +67,7 @@ class Vls.DefaultProject : Project {
                 // we may be opening a VAPI that is already a part of another
                 // compilation, so ensure this file is marked as open
                 opened[item.second] = item.first.filename;
-                Vls.Log.debug ("compile", "returning %s for %s", Util.project_path (item.first.filename), Util.project_uri (uri));
+                Logger.debug ("compile", "returning %s for %s", item.first.filename, uri);
             }
             return results;
         }
@@ -76,11 +76,11 @@ class Vls.DefaultProject : Project {
         if (content != null && (content.has_prefix ("#!") || content.has_prefix ("//"))) {
             try {
                 args = Util.get_arguments_from_command_str (content.substring (2, content.index_of_char ('\n')));
-                Vls.Log.debug ("compile", "parsed %d argument(s) from interpreter line ...", args.length);
+                Logger.debug ("compile", "parsed %d argument(s) from interpreter line ...", args.length);
                 for (int i = 0; i < args.length; i++)
-                    Vls.Log.debug ("compile", "[arg %d] %s", i, args[i]);
+                    Logger.debug ("compile", "[arg %d] %s", i, args[i]);
             } catch (RegexError rerror) {
-                Vls.Log.warn ("compile", "failed to parse interpreter line");
+                Logger.warn ("compile", "failed to parse interpreter line");
             }
         }
         var btarget = new Compilation (file_cache, analysis_cache, root_path, uri, uri, build_targets.size,
@@ -93,7 +93,7 @@ class Vls.DefaultProject : Project {
         // make sure this comes after, that way btarget only gets added
         // if the build succeeds
         build_targets.add (btarget);
-        Vls.Log.debug ("compile", "added %s", Util.project_uri (uri));
+        Logger.debug ("compile", "added %s", uri);
 
         results = lookup_compile_input_source_file (escaped_uri);
         // mark only the requested filename as opened in this compilation

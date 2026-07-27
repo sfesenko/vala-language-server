@@ -74,7 +74,7 @@ class Vls.Reporter : Vala.Report {
     }
     public override void err (Vala.SourceReference? source, string message) {
         if (source == null) { // non-source compiler error
-            stderr.printf ("Error: %s\n", message);
+            Logger.error ("lsp", "%s", message);
         } else {
             add_message (source, message, DiagnosticSeverity.Error);
             ++errors;

@@ -76,7 +76,7 @@ class Vls.ImplementMissingPrereqsAction : CodeAction {
             var sym = prereq_sym_pair.second;
 
             if (!(sym is Vala.Method || sym is Vala.Property)) {
-                Vls.Log.warn ("lsp", "unexpected symbol type %s @ %s", sym.type_name, sym.source_reference.to_string ());
+                Logger.warn ("lsp", "unexpected symbol type %s @ %s", sym.type_name, sym.source_reference.to_string ());
                 continue;
             }
 
@@ -102,7 +102,7 @@ class Vls.ImplementMissingPrereqsAction : CodeAction {
                 symbols_insert_text.append (return_type_representation);
                 symbols_insert_text.append_c (' ');
             } else {
-                Vls.Log.warn ("lsp", "no return type for symbol %s", sym.name);
+                Logger.warn ("lsp", "no return type for symbol %s", sym.name);
             }
 
             symbols_insert_text.append (sym.name);

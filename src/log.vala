@@ -26,11 +26,11 @@
  * NDC stack) is stored in GLib.Private slots — each thread gets its own.
  *
  * Usage:
- *   Log.push_context ("42:textDocument/hover");
- *   Log.debug ("hover", "resolved symbol at %d:%d", line, col);
- *   Log.pop_context ();
+ *   Logger.push_context ("42:textDocument/hover");
+ *   Logger.debug ("hover", "resolved symbol at %d:%d", line, col);
+ *   Logger.pop_context ();
  */
-namespace Vls.Log {
+namespace Vls.Logger {
     private static GLib.Private _thread_name;
     private static GLib.Private _stack_index;
     private static GLib.GenericArray<GLib.Queue<NdcEntry>> _all_stacks;
@@ -54,7 +54,7 @@ namespace Vls.Log {
      * other Log calls. Sets the calling thread's name to "main".
      */
     public static void init () {
-        _thread_name = new GLib.Private (null);
+        _thread_name = new GLib.Private (GLib.free);
         _stack_index = new GLib.Private (null);
         _all_stacks = new GLib.GenericArray<GLib.Queue<NdcEntry>> ();
         // Create main thread's stack (index 0)
@@ -82,7 +82,7 @@ namespace Vls.Log {
     // --- Thread name ---
 
     public static void set_thread_name (string name) {
-        _thread_name.set ((void*) name);
+        _thread_name.set (strdup ((!) name));
     }
 
     public static string get_thread_name () {
@@ -121,7 +121,7 @@ namespace Vls.Log {
     public static void pop_context () {
         unowned var stack = get_or_create_stack ();
         if (stack.length == 0) {
-            warning ("Vls.Log.pop_context: stack underflow");
+            warning ("Logger.pop_context: stack underflow");
             return;
         }
         var entry = stack.peek_head ();
@@ -212,16 +212,20 @@ namespace Vls.Log {
     }
 
     private static void log_full (string? domain, LogLevelFlags level, string message) {
+        string shortened = Util.shorten_message (message);
         string thread = get_thread_name ();
         string ndc = get_context ();
         string ts = format_timestamp ();
         string dom = (domain != null && domain != "") ? domain + ": " : "";
 
-        GLib.stderr.printf ("%s [%s] [%s] %s%s\n", ts, thread, ndc, dom, message);
+        GLib.stderr.printf ("%s [%s] [%s] %s%s\n", ts, thread, ndc, dom, shortened);
     }
 
     private static string format_timestamp () {
-        return new GLib.DateTime.now_local ().format ("%Y-%m-%d %H:%M:%S.%3f");
+        var dt = new GLib.DateTime.now_local ();
+        string date_part = dt.format ("%Y-%m-%d %H:%M:%S");
+        int ms = (int) (dt.get_microsecond () / 1000);
+        return "%s.%03d".printf (date_part, ms);
     }
 
     private static unowned GLib.Queue<NdcEntry> get_or_create_stack () {

@@ -31,6 +31,7 @@ namespace Vls.CompletionEngine {
         }
 
         public override void run () {
+            Logger.debug ("lsp", "completion at %s", pos.to_string ());
             Server.ServiceProvider lang_serv = ctx.services;
             Project project = ctx.project;
             Jsonrpc.Client client = ctx.client;

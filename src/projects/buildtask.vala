@@ -115,7 +115,7 @@ class Vls.BuildTask : BuildTarget {
 
             if (library_name != null) {
                 if (directory == null) {
-                    Vls.Log.warn ("compile", "BuildTask(%s): no --directory for vapigen, assuming %s", id, output_dir);
+                    Logger.warn ("compile", "BuildTask(%s): no --directory for vapigen, assuming %s", id, output_dir);
                     directory = output_dir;
                 }
                 output.add (File.new_for_commandline_arg_and_cwd (@"$library_name.vapi", directory));
@@ -125,7 +125,7 @@ class Vls.BuildTask : BuildTarget {
             foreach (string? output_filename in target_output_files) {
                 if (output_filename != null) {
                     output.add (File.new_for_commandline_arg_and_cwd (output_filename, output_dir));
-                    Vls.Log.debug ("compile", "BuildTask(%s): outputs %s", id, output_filename);
+                    Logger.debug ("compile", "BuildTask(%s): outputs %s", id, output_filename);
                 }
             }
         }
@@ -166,7 +166,7 @@ class Vls.BuildTask : BuildTarget {
                             library_file = gir_library_dir.get_child (@"lib$gir_library_name.$shlib_suffix");
                             if (library_file.query_exists ()) {
                                 input.add (library_file);
-                                Vls.Log.debug ("compile", "BuildTask(%s) found input %s", id, library_file.get_path ());
+                                Logger.debug ("compile", "BuildTask(%s) found input %s", id, library_file.get_path ());
                                 success = true;
                                 break;
                             }
@@ -176,7 +176,7 @@ class Vls.BuildTask : BuildTarget {
                             File libdir = gir_library_dir.get_child (@"lib$gir_library_name.$shlib_suffix.p");
                             if (libdir.query_exists ()) {
                                 input.add (library_file);
-                                Vls.Log.debug ("compile", "BuildTask(%s) found input %s", id, library_file.get_path ());
+                                Logger.debug ("compile", "BuildTask(%s) found input %s", id, library_file.get_path ());
                                 success = true;
                                 break;
                             }
@@ -184,7 +184,7 @@ class Vls.BuildTask : BuildTarget {
                             tried.add (library_file);
                         }
                         if (!success) {
-                            Vls.Log.warn ("compile", "BuildTask(%s) failed to determine g-ir-scanner input because all options don't exist (tried %s)",
+                            Logger.warn ("compile", "BuildTask(%s) failed to determine g-ir-scanner input because all options don't exist (tried %s)",
                                      id, tried.map<string> (f => f.get_path ())
                                          .fold<string> ((rightacc, elem) => elem != "" ? @"$elem, $rightacc" : rightacc, ""));
                         } else {
@@ -210,7 +210,7 @@ class Vls.BuildTask : BuildTarget {
                                 }
                                 if ((info == null || !info.get_is_symlink ()) && real_file != library_file) {
                                     input.add (real_file);
-                                    Vls.Log.debug ("compile", "BuildTask(%s): found input from symlink - %s", id, real_file.get_path ());
+                                    Logger.debug ("compile", "BuildTask(%s): found input from symlink - %s", id, real_file.get_path ());
                                 }
                             } catch (Error e) {
                                 // we don't care if the file doesn't exist, since that probably means
@@ -218,10 +218,10 @@ class Vls.BuildTask : BuildTarget {
                             }
                         }
                     } else {
-                        Vls.Log.warn ("compile", "BuildTask(%s): could not get directory for .gir file", id);
+                        Logger.warn ("compile", "BuildTask(%s): could not get directory for .gir file", id);
                     }
                 } else {
-                    Vls.Log.warn ("compile", "BuildTask(%s): could not get library for g-ir-scanner task", id);
+                    Logger.warn ("compile", "BuildTask(%s): could not get library for g-ir-scanner task", id);
                 }
             } else if (cmd_basename == "glib-compile-resources") {
                 File[] source_dirs = {};
@@ -262,7 +262,7 @@ class Vls.BuildTask : BuildTarget {
                    file_last_modified = (int64) time_last_modified.tv_sec * 1000000 + time_last_modified.tv_usec; }
 #endif
                 if (file_last_modified == 0)
-                    Vls.Log.warn ("compile", "BuildTask(%s) could not get last modified time of %s", id, file.get_path ());
+                    Logger.warn ("compile", "BuildTask(%s) could not get last modified time of %s", id, file.get_path ());
                 else if (file_last_modified > last_updated) {
                     inputs_modified_after = true;
                     break;
@@ -292,7 +292,7 @@ class Vls.BuildTask : BuildTarget {
             //    when using gnome.compile_resources() (again, see plugins/files/meson.build in gitg)
 
             // throw new ProjectError.TASK_FAILED (failed_msg);
-            Vls.Log.warn ("compile", failed_msg);
+            Logger.warn ("compile", failed_msg);
         } else {
             if (output.size == 1 && !output[0].query_exists (cancellable)) {
                 // write contents of stdout to the output file if it was not created

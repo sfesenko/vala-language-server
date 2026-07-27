@@ -63,11 +63,11 @@ class Vls.AnalysisCache : Object {
 
         if (!has_cached || type_cache[typeof (T)].last_updated < compilation.last_updated) {
             if (has_cached)
-                Vls.Log.debug ("compile", "get_analysis_for_file: stale %s for %s (comp_lu=%s)",
+                Logger.debug ("compile", "get_analysis_for_file: stale %s for %s (comp_lu=%s)",
                        typeof (T).name (), source.filename,
                        Util.ts_to_string (compilation.last_updated));
             else
-                Vls.Log.debug ("compile", "get_analysis_for_file: no cached %s for %s, creating",
+                Logger.debug ("compile", "get_analysis_for_file: no cached %s for %s, creating",
                        typeof (T).name (), source.filename);
             Vala.CodeContext.push (compilation.code_context);
             try {
@@ -84,7 +84,7 @@ class Vls.AnalysisCache : Object {
                 if (analysis != null) {
                     analysis.last_updated = GLib.get_real_time ();
                     type_cache[typeof (T)] = analysis;
-                    Vls.Log.debug ("compile", "get_analysis_for_file: created %s, analysis_lu=%s",
+                    Logger.debug ("compile", "get_analysis_for_file: created %s, analysis_lu=%s",
                            typeof (T).name (), Util.ts_to_string (analysis.last_updated));
                 }
             } finally {

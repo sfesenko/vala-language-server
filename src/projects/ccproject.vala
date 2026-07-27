@@ -36,11 +36,11 @@ class Vls.CcProject : Project {
         build_targets.clear ();
         build_files_have_changed = false;
 
-        Vls.Log.debug ("compile", "configuring in build dir %s ...", build_dir);
+        Logger.debug ("compile", "configuring in build dir %s ...", build_dir);
 
         if (!build_files.has_key (cc_json_file)) {
-            Vls.Log.debug ("compile", "obtaining a new file monitor for %s ...",
-                     Util.project_path (cc_json_file.get_path ()));
+            Logger.debug ("compile", "obtaining a new file monitor for %s ...",
+                     cc_json_file.get_path ());
             FileMonitor file_monitor = cc_json_file.monitor_file (FileMonitorFlags.NONE, cancellable);
             file_monitor.changed.connect (file_changed_event);
             build_files[cc_json_file] = file_monitor;
@@ -64,7 +64,7 @@ class Vls.CcProject : Project {
                 throw new ProjectError.INTROSPECTION ("JSON node is null. Bailing out!");
 
             if (cc.command.length == 0) {
-                Vls.Log.warn ("compile", "CC#%d has empty command list", i);
+                Logger.warn ("compile", "CC#%d has empty command list", i);
                 continue;
             }
 
@@ -103,17 +103,17 @@ class Vls.CcProject : Project {
 
     private void file_changed_event (File src, File? dest, FileMonitorEvent event_type) {
         if (FileMonitorEvent.ATTRIBUTE_CHANGED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s had an attribute changed", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s had an attribute changed", src.get_path ());
             build_files_have_changed = true;
             changed ();
         }
         if (FileMonitorEvent.CHANGED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s was changed", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s was changed", src.get_path ());
             build_files_have_changed = true;
             changed ();
         }
         if (FileMonitorEvent.DELETED in event_type) {
-            Vls.Log.debug ("compile", "watched file %s was deleted", Util.project_path (src.get_path ()));
+            Logger.debug ("compile", "watched file %s was deleted", src.get_path ());
             // remove this file monitor since the file was deleted
             FileMonitor file_monitor;
             if (build_files.unset (src, out file_monitor)) {

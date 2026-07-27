@@ -39,7 +39,7 @@ class Vls.Scheduler {
             (int) GLib.get_num_processors (),
             false   // not exclusive — workers are shared
         );
-        Vls.Log.debug ("scheduler", "created thread pool with %d threads", GLib.get_num_processors ());
+        Logger.debug ("scheduler", "created thread pool with %d threads", GLib.get_num_processors ());
     }
 
     /**
@@ -113,14 +113,14 @@ class Vls.Worker<T> {
      * then schedules the callback on the main loop.
      */
     public void run () {
-        Vls.Log.set_thread_name ("worker-%d".printf (_id));
+        Logger.set_thread_name ("worker-%d".printf (_id));
         try {
             if (_cancellable != null)
                 _cancellable.set_error_if_cancelled ();
             result = _task ();
         } catch (Error e) {
             error = e;
-            Vls.Log.warn ("scheduler", "worker task failed: %s", e.message);
+            Logger.warn ("scheduler", "worker task failed: %s", e.message);
         }
         GLib.Idle.add ((owned) _callback);
     }

@@ -48,7 +48,7 @@ class Vls.GirDocumentation {
             context.add_source_file (new Vala.SourceFile (context, Vala.SourceFileType.PACKAGE, girpath));
             Vala.CodeContext.pop ();
             added[gir_package] = vapi_package;
-            Vls.Log.debug ("lsp", "adding GIR %s for package %s", gir_package, vapi_package);
+            Logger.debug ("lsp", "adding GIR %s for package %s", gir_package, vapi_package);
             return true;
         }
         return false;
@@ -128,7 +128,7 @@ class Vls.GirDocumentation {
                 return true;
             });
         if (missed.length > 0)
-            Vls.Log.debug ("lsp", "did not add GIRs for these packages: %s", missed);
+            Logger.debug ("lsp", "did not add GIRs for these packages: %s", missed);
 
         add_types ();
 
@@ -165,7 +165,7 @@ class Vls.GirDocumentation {
 
         requires_rebuild = false;
         // start rebuilding the context
-        Vls.Log.debug ("lsp", "rebuilding context ...");
+        Logger.debug ("lsp", "rebuilding context ...");
 
         // save custom GIR dirs
         string[] gir_directories = context.gir_directories;
@@ -350,7 +350,7 @@ class Vls.GirDocumentation {
             if (gtkdoc_dir != null && comment.source_reference.file in context.get_source_files ()) {
                 gtkdoc_dirs[comment.source_reference.file] = gtkdoc_dir;
                 string? vapi_pkg_name = added[gir_package_name];
-                Vls.Log.debug ("lsp", "found new GTK-Doc dir for GIR %s%s: %s", gir_package_name, vapi_pkg_name != null ? @" (VAPI $vapi_pkg_name)" : "", gtkdoc_dir);
+                Logger.debug ("lsp", "found new GTK-Doc dir for GIR %s%s: %s", gir_package_name, vapi_pkg_name != null ? @" (VAPI $vapi_pkg_name)" : "", gtkdoc_dir);
             }
         }
 

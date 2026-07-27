@@ -40,12 +40,12 @@ namespace Vls.Rename {
         public override void run () {
             var symbol = resolve_symbol ();
             if (symbol == null) {
-                Vls.Log.debug ("lsp", "no results found");
+                Logger.debug ("lsp", "no results found");
                 reply_null ();
                 return;
             }
 
-            Vls.Log.debug ("lsp", "got symbol %s @ %s", symbol.get_full_name (), symbol.source_reference.to_string ());
+            Logger.debug ("lsp", "got symbol %s @ %s", symbol.get_full_name (), symbol.source_reference.to_string ());
 
             // get references in all files
             var generated_vapis = new Gee.HashSet<File> (Util.file_hash, Util.file_equal);
@@ -64,16 +64,16 @@ namespace Vls.Rename {
                     if (file in generated_vapis || file in shown_files)
                         continue;
                     var file_references = new Gee.HashMap<Range, Vala.CodeNode> ();
-                    Vls.Log.debug ("lsp", "looking for references in %s", Util.project_uri (file.get_uri ()));
+                    Logger.debug ("lsp", "looking for references in %s", file.get_uri ());
                     SymbolReferences.list_in_file (project_file, btarget_w_sym.second, true, false, file_references);
                     if (is_abstract_or_virtual) {
-                        Vls.Log.debug ("lsp", "looking for implementations of abstract/virtual symbol in %s", Util.project_uri (file.get_uri ()));
+                        Logger.debug ("lsp", "looking for implementations of abstract/virtual symbol in %s", file.get_uri ());
                         SymbolReferences.list_implementations_of_virtual_symbol (project_file, btarget_w_sym.second, file_references);
                     }
                     if (!(project_file is TextDocument) && file_references.size > 0) {
                         // This means we have found references in a file that was added automatically,
                         // which should not be modified.
-                        Vls.Log.warn ("lsp", "disallowing requested modification of %s", project_file.filename);
+                        Logger.warn ("lsp", "disallowing requested modification of %s", project_file.filename);
                         reply_null ();
                         return;
                     }
@@ -82,7 +82,7 @@ namespace Vls.Rename {
                     shown_files.add (file);
                 }
 
-            Vls.Log.debug ("lsp", "found %d references", references.size);
+            Logger.debug ("lsp", "found %d references", references.size);
 
             // construct the edits for the text documents
             // map: file URI -> TextEdit[]
@@ -101,7 +101,7 @@ namespace Vls.Rename {
             foreach (var entry in ref_entries) {
                 var code_node = entry.value;
                 var source_range = entry.key;
-                Vls.Log.debug ("lsp", "editing reference %s @ %s ...",
+                Logger.debug ("lsp", "editing reference %s @ %s ...",
                     CodeHelp.get_code_node_source (code_node),
                     code_node.source_reference.to_string ());
                 var file = File.new_for_commandline_arg (code_node.source_reference.file.filename);
@@ -132,7 +132,7 @@ namespace Vls.Rename {
                 Variant changes = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (text_document_edits_json), null);
                 reply_dict (ctx.server.build_dict (documentChanges: changes));
             } catch (Error e) {
-                Vls.Log.warn ("lsp", "failed to reply to client - %s", e.message);
+                Logger.warn ("lsp", "failed to reply to client - %s", e.message);
             }
         }
     }
@@ -198,7 +198,7 @@ namespace Vls.Rename {
                     placeholder: new Variant.string (symbol.name)
                 ));
             } catch (Error e) {
-                Vls.Log.warn ("lsp", "failed to reply with success - %s", e.message);
+                Logger.warn ("lsp", "failed to reply with success - %s", e.message);
             }
         }
     }

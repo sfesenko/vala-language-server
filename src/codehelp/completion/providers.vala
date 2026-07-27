@@ -277,13 +277,13 @@ namespace Vls.CompletionEngine {
                     else
                         gerror_sym = null;
                     if (gerror_sym == null || !(gerror_sym is Vala.Class))
-                        Vls.Log.warn ("lsp", "GLib.Error not found");
+                        Logger.warn ("lsp", "GLib.Error not found");
                     else
                         add_completions_for_type (lang_serv, project, code_style,
                             type, (Vala.TypeSymbol) gerror_sym, completions,
                             current_scope, in_oce, false, visited_types, seen_props, seen_type_symbols);
                 } else
-                    Vls.Log.warn ("lsp", "GLib not found");
+                    Logger.warn ("lsp", "GLib not found");
             }
         } else if (type_symbol is Vala.Struct) {
             /**
@@ -360,7 +360,7 @@ namespace Vls.CompletionEngine {
                  CompletionItemKind.Field,
                  new DocComment (@"a function that knows how to destroy instances of $(typeparam_sym.name)")));
         } else {
-            Vls.Log.warn ("lsp", "other type symbol %s", type_symbol.to_string ());
+            Logger.warn ("lsp", "other type symbol %s", type_symbol.to_string ());
         }
     }
 

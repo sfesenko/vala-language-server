@@ -26,7 +26,7 @@ class Vls.Request : Object {
 
     public Request (Variant id, string? method = null) {
         if (!id.is_of_type (VariantType.INT64) && !id.is_of_type (VariantType.STRING)) {
-            Vls.Log.warn ("lsp", "unexpected id type '%s'", id.get_type_string ());
+            Logger.warn ("lsp", "unexpected id type '%s'", id.get_type_string ());
             return;
         }
         if (id.is_of_type (VariantType.INT64))

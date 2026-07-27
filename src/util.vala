@@ -353,7 +353,7 @@ namespace Vls.Util {
                 }
             }
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "could not get next file in dir %s", dir.get_path ());
+            Logger.warn ("lsp", "could not get next file in dir %s", Util.project_path (dir.get_path ()));
         }
 
         return found;
@@ -635,6 +635,16 @@ namespace Vls.Util {
                 return "$PROJECT" + path.substring (root.length);
         }
         return path;
+    }
+
+    /**
+     * Replace all occurrences of the project root in a formatted log message
+     * with the $PROJECT prefix. Safe to call before set_project_root().
+     */
+    public static string shorten_message (string message) {
+        if (_project_roots == null || _project_roots.length == 0)
+            return message;
+        return message.replace (_project_roots[0], "$PROJECT");
     }
 
     /**

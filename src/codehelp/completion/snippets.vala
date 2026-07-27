@@ -58,7 +58,7 @@ namespace Vls.CompletionEngine {
 
         if (callable_sym.name == ".new") {
             if (callable_sym.parent_symbol == null) {
-                Vls.Log.warn ("lsp", "parent is null for %s()", callable_sym.name);
+                Logger.warn ("lsp", "parent is null for %s()", callable_sym.name);
                 return null;
             }
             builder.append (symbol_override ?? callable_sym.parent_symbol.name);

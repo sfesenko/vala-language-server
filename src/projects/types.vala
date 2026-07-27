@@ -58,7 +58,7 @@ namespace Vls {
                     if (command_str != null)
                         command_array = Util.get_arguments_from_command_str (property_node.get_string ());
                 } catch (RegexError e) {
-                    Vls.Log.warn ("compile", "failed to parse `%s': %s", property_node.get_string (), e.message);
+                    Logger.warn ("compile", "failed to parse `%s': %s", property_node.get_string (), e.message);
                 }
                 val.set_boxed (command_array);
                 return true;

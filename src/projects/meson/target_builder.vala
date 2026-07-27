@@ -50,10 +50,10 @@ class Vls.MesonTargetBuilder : Object {
             var meson_target_info = Json.gobject_deserialize
                 (typeof (Meson.TargetInfo), elem_node) as Meson.TargetInfo?;
             if (meson_target_info == null) {
-                Vls.Log.warn ("compile", "could not deserialize target/element #%d", elem_idx);
+                Logger.warn ("compile", "could not deserialize target/element #%d", elem_idx);
                 continue;
             } else if (meson_target_info.target_sources.is_empty) {
-                Vls.Log.warn ("compile", "target #%d (%s) has no target sources", elem_idx, meson_target_info.id);
+                Logger.warn ("compile", "target #%d (%s) has no target sources", elem_idx, meson_target_info.id);
                 continue;
             }
 
@@ -83,7 +83,7 @@ class Vls.MesonTargetBuilder : Object {
                     if (root_dir.get_relative_path (input_file) == input_file.get_basename () &&
                         !input_file.query_exists (cancellable)) {
                         input_file = File.new_build_filename (root_path, src_relative_path, input_file.get_basename ());
-                        Vls.Log.debug ("compile", "fixed %s source: from %s --> %s", compiler_name, source, Util.project_path (input_file.get_path ()));
+                        Logger.debug ("compile", "fixed %s source: from %s --> %s", compiler_name, source, input_file.get_path ());
                     }
                     fixed_sources.add (input_file.get_path ());
                 }
@@ -126,7 +126,7 @@ class Vls.MesonTargetBuilder : Object {
                         if (Util.file_equal (entry.key, include_dir)) {
                             var libs = new ArrayList<string>.wrap (first_source.sources);
                             foreach (string lib in entry.value.filename) {
-                                Vls.Log.debug ("compile", "adding internal link arg `%s' to C target %s for include dir %s",
+                                Logger.debug ("compile", "adding internal link arg `%s' to C target %s for include dir %s",
                                        lib, meson_target_info.id, entry.key.get_path ());
                                 libs.add (lib);
                             }
@@ -139,7 +139,7 @@ class Vls.MesonTargetBuilder : Object {
                             File file = File.new_for_commandline_arg_and_cwd (filename, target_private_output_dir);
                             if (Util.file_equal (include_dir, file) || include_dir.get_relative_path (file) != null) {
                                 internal_lib_c_includes[include_dir] = meson_target_info;
-                                Vls.Log.debug ("compile", "associating include dir %s with meson target %s",
+                                Logger.debug ("compile", "associating include dir %s with meson target %s",
                                        include_dir.get_path (), meson_target_info.id);
                             }
                         }
@@ -159,7 +159,7 @@ class Vls.MesonTargetBuilder : Object {
                         foreach (string link_arg in raw_dep.link_args) {
                             if (!(link_arg in link_args)) {
                                 link_args.add (link_arg);
-                                Vls.Log.debug ("compile", "adding link arg `%s' to C target %s", link_arg, meson_target_info.id);
+                                Logger.debug ("compile", "adding link arg `%s' to C target %s", link_arg, meson_target_info.id);
                             }
                         }
                     }
@@ -231,7 +231,7 @@ class Vls.MesonTargetBuilder : Object {
                 if (previous_target != null) {
                     previous_target.no = elem_idx;
                     build_targets.add (previous_target);
-                    Vls.Log.debug ("compile", "swapping previous target %s after target %s", previous_target.id, meson_target_info.id);
+                    Logger.debug ("compile", "swapping previous target %s after target %s", previous_target.id, meson_target_info.id);
                 }
 
                 if (executes_generated_program) {
@@ -247,20 +247,20 @@ class Vls.MesonTargetBuilder : Object {
     public void augment_from_compile_commands (Cancellable? cancellable = null) throws Error {
         var ccs_parser = new Json.Parser.immutable_new ();
         var ccs_file = File.new_build_filename (build_dir, "compile_commands.json");
-        Vls.Log.debug ("compile", "loading file %s ...", Util.project_path (ccs_file.get_path ()));
+        Logger.debug ("compile", "loading file %s ...", ccs_file.get_path ());
         ccs_parser.load_from_stream (ccs_file.read (cancellable), cancellable);
         Json.Node? ccs_json_root = ccs_parser.get_root ();
         if (ccs_json_root == null)
-            Vls.Log.warn ("compile", "JSON root is null! Bailing out");
+            Logger.warn ("compile", "JSON root is null! Bailing out");
         else if (ccs_json_root.get_node_type () != Json.NodeType.ARRAY)
-            Vls.Log.warn ("compile", "JSON root is not an array! Bailing out");
+            Logger.warn ("compile", "JSON root is not an array! Bailing out");
         else {
             int nth_cc = -1;
             foreach (Json.Node elem_node in ccs_json_root.get_array ().get_elements ()) {
                 nth_cc++;
                 var cc = Json.gobject_deserialize (typeof (CompileCommand), elem_node) as CompileCommand;
                 if (cc == null) {
-                    Vls.Log.warn ("compile", "could not deserialize compile command #%d", nth_cc);
+                    Logger.warn ("compile", "could not deserialize compile command #%d", nth_cc);
                     continue;
                 }
                 var cc_file = File.new_for_path (Util.realpath (cc.file, cc.directory));
@@ -276,7 +276,7 @@ class Vls.MesonTargetBuilder : Object {
                         continue;
                     var vapi_file = File.new_for_path (Util.realpath (arg_value, cc.directory));
                     if (!compilation.input.contains (vapi_file)) {
-                        Vls.Log.debug ("compile", "discovered VAPI file %s used by compilation %s",
+                        Logger.debug ("compile", "discovered VAPI file %s used by compilation %s",
                                vapi_file.get_path (), compilation.id);
                         compilation.input.add (vapi_file);
                     }
@@ -346,9 +346,9 @@ class Vls.MesonTargetBuilder : Object {
         if (btarget_found != null && (btarget_found is Compilation)) {
             return (Compilation) btarget_found;
         } else if (id != null) {
-            Vls.Log.debug ("compile", "could not associate CC with meson target-id: %s", id);
+            Logger.debug ("compile", "could not associate CC with meson target-id: %s", id);
         } else if (name != null) {
-            Vls.Log.debug ("compile", "could not associate CC with meson target-name: %s", name);
+            Logger.debug ("compile", "could not associate CC with meson target-name: %s", name);
         }
         return null;
     }

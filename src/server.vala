@@ -74,7 +74,7 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     public Server (MainLoop loop) {
-        stderr.printf ("=== VLS: Server constructor started ===\n");
+        Vls.Logger.debug ("lsp", "Server constructor started");
         this.loop = loop;
 
         // hack to prevent other things from corrupting JSON-RPC pipe:
@@ -108,7 +108,7 @@ class Vls.Server : Jsonrpc.Server {
              || !Unix.set_fd_nonblocking (new_stdout_fd, true))
              error ("could not set pipes to nonblocking.\n");
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "failed to set FDs to nonblocking");
+            Vls.Logger.warn ("lsp", "failed to set FDs to nonblocking");
             loop.quit ();
             return;
         }
@@ -123,7 +123,7 @@ class Vls.Server : Jsonrpc.Server {
         this.services = new ServiceProvider (this);
         this.request_router = new RequestRouter (this);
 
-        Vls.Log.debug ("lsp", "Finished constructing");
+        Vls.Logger.debug ("lsp", "Finished constructing");
     }
 
     /**
@@ -177,14 +177,14 @@ class Vls.Server : Jsonrpc.Server {
 
     internal void show_message (Jsonrpc.Client client, string message, MessageType type) {
         if (type == MessageType.Error)
-            Vls.Log.warn ("lsp", "%s", message);
+            Vls.Logger.warn ("lsp", "%s", message);
         try {
             client.send_notification ("window/showMessage", build_dict (
                 type: new Variant.int16 (type),
                 message: new Variant.string (message)
             ), cancellable);
         } catch (Error e) {
-            Vls.Log.debug ("lsp", "showMessage: failed to notify client: %s", e.message);
+            Vls.Logger.debug ("lsp", "showMessage: failed to notify client: %s", e.message);
         }
     }
 
@@ -209,7 +209,7 @@ class Vls.Server : Jsonrpc.Server {
         }
         string root_path = Util.realpath ((!) root_dir.get_path ());
         Util.set_project_root (root_path);
-        Vls.Log.info ("lsp", "root path is %s", root_path);
+        Vls.Logger.info ("lsp", "root path is %s", root_path);
 
         // respond
         try {
@@ -261,7 +261,7 @@ class Vls.Server : Jsonrpc.Server {
                 )
             ), cancellable);
         } catch (Error e) {
-            Vls.Log.error ("lsp", "[initialize] failed to reply to client: %s", e.message);
+            Vls.Logger.warn ("lsp", "[initialize] failed to reply to client: %s", e.message);
         }
 
         var meson_file = root_dir.get_child ("meson.build");
@@ -269,7 +269,7 @@ class Vls.Server : Jsonrpc.Server {
         try {
             cc_files = Util.find_files (root_dir, /compile_commands\.json/, 2);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "could not enumerate root dir - %s", e.message);
+            Vls.Logger.warn ("lsp", "could not enumerate root dir - %s", e.message);
         }
 
         // Bug #290: if meson.build not found in root, walk parent directories
@@ -278,7 +278,7 @@ class Vls.Server : Jsonrpc.Server {
             while (parent != null) {
                 var candidate = parent.get_child ("meson.build");
                 if (candidate.query_exists (cancellable)) {
-                    Vls.Log.debug ("lsp", "found meson.build in parent: %s", Util.project_path (candidate.get_path ()));
+                    Vls.Logger.debug ("lsp", "found meson.build in parent: %s", candidate.get_path ());
                     meson_file = candidate;
                     break;
                 }
@@ -307,10 +307,10 @@ class Vls.Server : Jsonrpc.Server {
                 string cc_file_path = Util.realpath (cc_file.get_path ());
                 try {
                     backend_project = new CcProject (root_path, cc_file_path, project_manager.file_cache, cancellable);
-                    Vls.Log.debug ("lsp", "initialized CcProject with %s", cc_file_path);
+                    Vls.Logger.debug ("lsp", "initialized CcProject with %s", cc_file_path);
                     break;
                 } catch (Error e) {
-                    Vls.Log.debug ("lsp", "CcProject failed with %s - %s", cc_file_path, e.message);
+                    Vls.Logger.debug ("lsp", "CcProject failed with %s - %s", cc_file_path, e.message);
                     continue;
                 }
             }
@@ -340,7 +340,7 @@ class Vls.Server : Jsonrpc.Server {
         // build and publish diagnostics
         foreach (var project in new_projects) {
             try {
-                Vls.Log.info ("lsp", "building project");
+                Vls.Logger.info ("lsp", "building project");
                 project.build_if_stale ();
                 foreach (var compilation in project.get_compilations ())
                     publish_diagnostics (project, compilation, client);
@@ -372,6 +372,7 @@ class Vls.Server : Jsonrpc.Server {
     }
 
     internal void cancel_request (Jsonrpc.Client client, Variant @params) {
+        Vls.Logger.debug ("lsp", "cancel_request");
         Variant? id_val = @params.lookup_value ("id", null);
         if (id_val != null) {
             var req = new Request (id_val);
@@ -396,7 +397,7 @@ class Vls.Server : Jsonrpc.Server {
         try {
             client.reply (id, new Variant.maybe (VariantType.VARIANT, null), cancellable ?? Server.cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
+            Vls.Logger.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
         }
     }
 
@@ -411,7 +412,7 @@ class Vls.Server : Jsonrpc.Server {
             Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
             client.reply (id, result, cancellable ?? Server.cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
+            Vls.Logger.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
         }
     }
 
@@ -420,7 +421,7 @@ class Vls.Server : Jsonrpc.Server {
      */
     public static void reply_error (Jsonrpc.Client client, Variant id, int code, string message, string method = "", Cancellable? cancellable = null) {
         client.reply_error_async.begin (id, code, message, cancellable ?? Server.cancellable);
-        Vls.Log.debug ("lsp", "error reply (%d): %s", code, message);
+        Vls.Logger.debug ("lsp", "error reply (%d): %s", code, message);
     }
 
     /**
@@ -431,7 +432,7 @@ class Vls.Server : Jsonrpc.Server {
             Variant result = Json.gvariant_deserialize (new Json.Node.alloc ().init_array (array), null);
             client.reply (id, result, cancellable ?? Server.cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
+            Vls.Logger.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
         }
     }
 
@@ -442,7 +443,7 @@ class Vls.Server : Jsonrpc.Server {
         try {
             client.reply (id, Util.object_to_variant (obj), cancellable ?? Server.cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
+            Vls.Logger.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
         }
     }
 
@@ -453,7 +454,7 @@ class Vls.Server : Jsonrpc.Server {
         try {
             client.reply (id, dict, cancellable ?? Server.cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
+            Vls.Logger.warn ("lsp", "[%s] failed to reply to client: %s", method, e.message);
         }
     }
 
@@ -633,12 +634,12 @@ class Vls.Server : Jsonrpc.Server {
         string fileContents = (string) document.lookup_value ("text", VariantType.STRING);
 
         if (languageId != "vala" && languageId != "genie") {
-            Vls.Log.warn ("lsp", "%s file sent to vala language server", languageId);
+            Vls.Logger.warn ("lsp", "%s file sent to vala language server", languageId);
             return;
         }
 
         if (uri == null) {
-            Vls.Log.warn ("lsp", "null URI sent to vala language server");
+            Vls.Logger.warn ("lsp", "null URI sent to vala language server");
             return;
         }
 
@@ -650,7 +651,7 @@ class Vls.Server : Jsonrpc.Server {
                 break;
             } catch (Error e) {
                 if (!(e is ProjectError.NOT_FOUND))
-                    Vls.Log.warn ("lsp", "failed to open %s - %s", Util.project_uri (uri), e.message);
+                    Vls.Logger.warn ("lsp", "failed to open %s - %s", uri, e.message);
             }
         }
 
@@ -673,12 +674,12 @@ class Vls.Server : Jsonrpc.Server {
                         MessageType.Warning);
                 }
             } catch (Error e) {
-                Vls.Log.warn ("lsp", "failed to open %s - %s", Util.project_uri (uri), e.message);
+                Vls.Logger.warn ("lsp", "failed to open %s - %s", uri, e.message);
             }
         }
 
         if (doc_w_bt == null) {
-            Vls.Log.warn ("lsp", "could not open %s", uri);
+            Vls.Logger.warn ("lsp", "could not open %s", uri);
             return;
         }
 
@@ -690,19 +691,19 @@ class Vls.Server : Jsonrpc.Server {
             doc.get_mapped_contents ();
         if (doc is TextDocument) {
             var tdoc = (TextDocument) doc;
-            Vls.Log.info ("lsp", "opened %s", Util.project_uri (uri));
+            Vls.Logger.info ("lsp", "opened %s", uri);
             tdoc.last_saved_content = fileContents;
             bool content_changed = tdoc.content != fileContents;
-            Vls.Log.debug ("context", "didOpen: uri=%s, content_len=%d, content_changed=%s",
-                   Util.project_uri (uri), fileContents.length, content_changed.to_string ());
+            Vls.Logger.debug ("context", "didOpen: uri=%s, content_len=%d, content_changed=%s",
+                   uri, fileContents.length, content_changed.to_string ());
             if (content_changed) {
                 tdoc.content = fileContents;
                 tdoc.last_updated = GLib.get_real_time ();
-                Vls.Log.debug ("context", "didOpen: set content, last_updated=%s", Util.ts_to_string (tdoc.last_updated));
+                Vls.Logger.debug ("context", "didOpen: set content, last_updated=%s", Util.ts_to_string (tdoc.last_updated));
                 context_manager.request_context_update (client);
             }
         } else {
-            Vls.Log.info ("lsp", "opened read-only %s", Util.project_uri (uri));
+            Vls.Logger.info ("lsp", "opened read-only %s", uri);
         }
 
         // add document to open list
@@ -714,7 +715,7 @@ class Vls.Server : Jsonrpc.Server {
 
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
         if (uri == null) {
-            Vls.Log.warn ("lsp", "null URI sent to vala language server");
+            Vls.Logger.warn ("lsp", "null URI sent to vala language server");
             return;
         }
 
@@ -726,13 +727,13 @@ class Vls.Server : Jsonrpc.Server {
                 var text_document = pair.first as TextDocument;
 
                 if (text_document == null) {
-                    Vls.Log.debug ("lsp", "ignoring save to system file");
+                    Vls.Logger.debug ("lsp", "ignoring save to system file");
                     continue;
                 }
 
                 // make checkpoint
                 text_document.last_saved_content = text_document.content;
-                Vls.Log.debug ("lsp", "last save of %s is now at version %d", Util.project_uri (uri), text_document.last_saved_version);
+                Vls.Logger.debug ("lsp", "last save of %s is now at version %d", uri, text_document.last_saved_version);
             }
         }
     }
@@ -742,7 +743,7 @@ class Vls.Server : Jsonrpc.Server {
         string? uri = (string) document.lookup_value ("uri", VariantType.STRING);
 
         if (uri == null) {
-            Vls.Log.warn ("lsp", "null URI sent to vala language server");
+            Vls.Logger.warn ("lsp", "null URI sent to vala language server");
             return;
         }
 
@@ -755,10 +756,10 @@ class Vls.Server : Jsonrpc.Server {
                     document_manager.add_discarded_file (uri);
                     context_manager.request_context_update (client);
                 }
-                Vls.Log.debug ("lsp", "closed %s", Util.project_uri (uri));
+                Vls.Logger.debug ("lsp", "closed %s", uri);
             } catch (Error e) {
                 if (!(e is ProjectError.NOT_FOUND))
-                    Vls.Log.warn ("lsp", "failed to close %s - %s", Util.project_uri (uri), e.message);
+                    Vls.Logger.warn ("lsp", "failed to close %s - %s", uri, e.message);
             }
         }
     }
@@ -778,18 +779,18 @@ class Vls.Server : Jsonrpc.Server {
                 var source_file = pair.first;
 
                 if (!(source_file is TextDocument)) {
-                    Vls.Log.debug ("lsp", "ignoring change to system file");
+                    Vls.Logger.debug ("lsp", "ignoring change to system file");
                     continue;
                 }
 
                 var source = (TextDocument) source_file;
                 if (source.version >= version) {
-                    Vls.Log.warn ("lsp", "rejecting outdated version of %s", Util.project_uri (uri));
+                    Vls.Logger.warn ("lsp", "rejecting outdated version of %s", uri);
                     continue;
                 }
 
                 if (source_file.content == null) {
-                    Vls.Log.warn ("lsp", "source content is null!");
+                    Vls.Logger.warn ("lsp", "source content is null!");
                     continue;
                 }
 
@@ -823,7 +824,7 @@ class Vls.Server : Jsonrpc.Server {
     internal void publish_diagnostics (Project project, Compilation target, Jsonrpc.Client client) {
         var diags_without_source = new Json.Array ();
 
-        Vls.Log.debug ("compile", "publishing diagnostics for %s", target.name);
+        Vls.Logger.debug ("compile", "publishing diagnostics for %s", target.name);
 
         var doc_diags = new HashMap<Vala.SourceFile, Json.Array?> ();
         foreach (var file in target.code_context.get_source_files ())
@@ -848,11 +849,11 @@ class Vls.Server : Jsonrpc.Server {
                 return;
             }
             if (err.loc.file == null) {
-                Vls.Log.warn ("compile", "diagnostic has null source file");
+                Vls.Logger.warn ("compile", "diagnostic has null source file");
                 return;
             }
             if (!(err.loc.file in target.code_context.get_source_files ())) {
-                Vls.Log.warn ("compile", "diagnostic has source not in compilation: %s", err.message);
+                Vls.Logger.warn ("compile", "diagnostic has source not in compilation: %s", err.message);
                 return;
             }
 
@@ -890,7 +891,7 @@ class Vls.Server : Jsonrpc.Server {
                 );
                 discarded_files_published.add (discarded_uri);
             } catch (Error e) {
-                Vls.Log.warn ("compile", "failed to publish empty diags for %s: %s", discarded_uri, e.message);
+                Vls.Logger.warn ("compile", "failed to publish empty diags for %s: %s", discarded_uri, e.message);
             }
         }
         document_manager.remove_discarded_files (discarded_files_published);
@@ -906,7 +907,7 @@ class Vls.Server : Jsonrpc.Server {
                         new Json.Node.alloc ().init_array (entry.value),
                         null);
                 } catch (Error e) {
-                    Vls.Log.warn ("compile", "failed to deserialize diags for %s: %s", gfile.get_uri (), e.message);
+                    Vls.Logger.warn ("compile", "failed to deserialize diags for %s: %s", gfile.get_uri (), e.message);
                     continue;
                 }
             } else {
@@ -922,7 +923,7 @@ class Vls.Server : Jsonrpc.Server {
                     ),
                     cancellable);
             } catch (Error e) {
-                Vls.Log.warn ("compile", "failed to notify client: %s", e.message);
+                Vls.Logger.warn ("compile", "failed to notify client: %s", e.message);
             }
         }
 
@@ -939,7 +940,7 @@ class Vls.Server : Jsonrpc.Server {
                 ),
                 cancellable);
         } catch (Error e) {
-            Vls.Log.warn ("compile", "failed to publish diags without source: %s", e.message);
+            Vls.Logger.warn ("compile", "failed to publish diags without source: %s", e.message);
         }
     }
 
@@ -989,7 +990,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile? file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1009,7 +1010,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1041,7 +1042,7 @@ class Vls.Server : Jsonrpc.Server {
                 }, cancellable);
             } catch (Error e) {
                 reply_error (Jsonrpc.ClientError.INTERNAL_ERROR, e.message);
-                Vls.Log.warn ("lsp", "Formatting failed: %s", e.message);
+                Vls.Logger.warn ("lsp", "Formatting failed: %s", e.message);
                 return;
             }
             json_array.add_element (Json.gobject_serialize (edited));
@@ -1055,7 +1056,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? source_file = project_manager.find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1109,7 +1110,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? source_file = project_manager.find_file (p.textDocument.uri, out compilation);
         if (source_file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1160,7 +1161,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile? file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1195,7 +1196,7 @@ class Vls.Server : Jsonrpc.Server {
         Project project;
         Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1240,7 +1241,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1271,7 +1272,7 @@ class Vls.Server : Jsonrpc.Server {
         string? uri = document != null ? (string?) document.lookup_value ("uri", VariantType.STRING) : null;
 
         if (document == null || uri == null) {
-            Vls.Log.warn ("lsp", "[%s] `textDocument` or `uri` not provided as expected", method);
+            Vls.Logger.warn ("lsp", "[%s] `textDocument` or `uri` not provided as expected", method);
             reply_null (id, client, method);
             return;
         }
@@ -1280,7 +1281,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? file = project_manager.find_file (uri, out compilation, out project);
         if (file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, uri);
             reply_null (id, client, method);
             return;
         }
@@ -1308,8 +1309,8 @@ class Vls.Server : Jsonrpc.Server {
 
     internal void dispatch_semantic_tokens_full (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.SemanticTokensParams> (@params);
-        Vls.Log.debug ("context", "full request: %s",
-               Util.project_uri (p.textDocument.uri));
+        Vls.Logger.debug ("context", "full request: %s",
+               p.textDocument.uri);
 
             context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
@@ -1321,7 +1322,7 @@ class Vls.Server : Jsonrpc.Server {
             Project project;
             Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
                 reply_null (id, client, method);
                 return;
             }
@@ -1337,8 +1338,8 @@ class Vls.Server : Jsonrpc.Server {
 
     internal void dispatch_semantic_tokens_delta (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.SemanticTokensDeltaParams> (@params);
-        Vls.Log.debug ("context", "delta request: uri=%s, prev_id=%s",
-               Util.project_uri (p.textDocument.uri), p.previousResultId ?? "null");
+        Vls.Logger.debug ("context", "delta request: uri=%s, prev_id=%s",
+               p.textDocument.uri, p.previousResultId ?? "null");
 
             context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
@@ -1350,7 +1351,7 @@ class Vls.Server : Jsonrpc.Server {
             Project project;
             Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
                 reply_null (id, client, method);
                 return;
             }
@@ -1366,8 +1367,8 @@ class Vls.Server : Jsonrpc.Server {
 
     internal void dispatch_semantic_tokens_range (Jsonrpc.Client client, string method, Variant id, Variant @params) {
         var p = Util.parse_variant<Lsp.SemanticTokensRangeParams> (@params);
-        Vls.Log.debug ("context", "range request: %s",
-               Util.project_uri (p.textDocument.uri));
+        Vls.Logger.debug ("context", "range request: %s",
+               p.textDocument.uri);
 
             context_manager.wait_for_context_update (id, request_cancelled => {
             if (request_cancelled) {
@@ -1379,7 +1380,7 @@ class Vls.Server : Jsonrpc.Server {
             Project project;
             Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
             if (doc == null) {
-                Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+                Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
                 reply_null (id, client, method);
                 return;
             }
@@ -1400,7 +1401,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1434,7 +1435,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? doc = project_manager.find_file (item.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, item.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1468,7 +1469,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         Vala.SourceFile? doc = project_manager.find_file (item.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, item.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1501,7 +1502,7 @@ class Vls.Server : Jsonrpc.Server {
         Project? project;
         var file = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (file == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1534,7 +1535,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         var doc = project_manager.find_file (p.textDocument.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (p.textDocument.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, p.textDocument.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1568,7 +1569,7 @@ class Vls.Server : Jsonrpc.Server {
         Compilation compilation;
         var doc = project_manager.find_file (item.uri, out compilation, out project);
         if (doc == null) {
-            Vls.Log.debug ("lsp", "[%s] file `%s' not found", method, Util.project_uri (item.uri));
+            Vls.Logger.debug ("lsp", "[%s] file `%s' not found", method, item.uri);
             reply_null (id, client, method);
             return;
         }
@@ -1596,7 +1597,7 @@ class Vls.Server : Jsonrpc.Server {
 
 
     internal void shutdown () {
-        Vls.Log.info ("lsp", "shutting down");
+        Vls.Logger.info ("lsp", "shutting down");
         this.shutting_down = true;
         cancellable.cancel ();
         if (client_closed_event_id != 0)
@@ -1633,9 +1634,12 @@ void vls_log_handler (Vls.Server? sv, string? domain, LogLevelFlags levels, stri
                 break;
         }
     }
-    string thread = Vls.Log.get_thread_name ();
-    string ndc = Vls.Log.get_context ();
-    var timestamp = new DateTime.now ().format ("%Y-%m-%d %H:%M:%S.%3f");
+    string thread = Vls.Logger.get_thread_name ();
+    string ndc = Vls.Logger.get_context ();
+    var dt = new DateTime.now ();
+    string ts = dt.format ("%Y-%m-%d %H:%M:%S");
+    int ms = (int) (dt.get_microsecond () / 1000);
+    var timestamp = "%s.%03d".printf (ts, ms);
     string dom = (domain != null && domain != "") ? domain + ": " : "";
     var formatted = "%s [%s] [%s] %s%s\n".printf (timestamp, thread, ndc, dom, message);
     stderr.printf ("%s", formatted);
@@ -1676,7 +1680,7 @@ int main (string[] args) {
     });
 
     stderr.printf ("=== VLS starting ===\n");
-    Vls.Log.init ();
+    Vls.Logger.init ();
     Environment.set_prgname ("vala-language-server");
     var ocontext = new OptionContext ("- vala-language-server");
     ocontext.add_main_entries (entries, null);
@@ -1708,7 +1712,7 @@ int main (string[] args) {
             if (!log_dir.query_exists ())
                 log_dir.make_directory_with_parents ();
         } catch (Error e) {
-            stderr.printf ("warning: could not create log directory: %s\n", e.message);
+            Vls.Logger.warn ("lsp", "could not create log directory: %s", e.message);
         }
         vls_log_file = FileStream.open (log_path, "a");
         if (vls_log_file != null) {
